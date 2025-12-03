@@ -148,6 +148,18 @@ export async function getRoomDetail(
   return res.data.room as RoomDetail;
 }
 
+export async function getPublisherTokenApi(roomId: string) {
+  const res = await api.post(`/rooms/${roomId}/rtc/publisher`);
+  // backend returns: { token: { provider, token, expiresAt, uid } }
+  return res.data.token as {
+    provider: string;
+    token: string;
+    expiresAt: string;
+    uid: number;
+  };
+}
+
+
 export async function joinRoomApi(
   roomId: string
 ): Promise<JoinRoomResult> {

@@ -1,22 +1,59 @@
 "use client";
 
-
-
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { getToken } from "./auth";
 
+// ---- Base API ----
+const API_BASE =
+  process.env.NEXT_PUBLIC_API ?? "http://localhost:8000";
+
+console.log("API BASE =>", API_BASE);
+
 const api = axios.create({
-  baseURL: "https://kotkoti.stallforest.com",
+  baseURL: API_BASE,
 });
 
+// ---- Request interceptor: attach JWT ----
 api.interceptors.request.use((config) => {
   const token = getToken();
-   console.log("AXIOS TOKEN =>", token);  
+  console.log("AXIOS TOKEN =>", token);
   if (token) {
+    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+// ---- Response interceptor: error handling / 401 ----
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<any>) => {
+    const status = error.response?.status;
+    const data = error.response?.data;
+
+    console.error("API ERROR:", {
+      status,
+      data,
+      message: error.message,
+    });
+
+    if (status === 401 && typeof window !== "undefined") {
+      // Token invalid/expired → force logout to login page
+      try {
+        localStorage.removeItem("token");
+      } catch {}
+      window.location.href = "/login";
+    }
+
+    // Throw a more readable error
+    const message =
+      (data && (data.message || data.error)) ||
+      error.message ||
+      "Unknown API error";
+
+    return Promise.reject(new Error(message));
+  }
+);
 
 // ---- Types ----
 export type Room = {
@@ -61,62 +98,119 @@ export type Ban = {
   reason?: string;
 };
 
+type JoinRoomResult = {
+  room: RoomDetail;
+  token: {
+    provider: string;
+    token: string;
+    expiresAt: string;
+    uid: number;
+  };
+};
+
 // ---- Auth ----
-// ADJUST to match your real login endpoint & payload
 export async function loginApi(data: { email: string; password: string }) {
   const res = await api.post("/auth/login", data);
-  // expected response: { accessToken: "...", user: {...} }
-  return res.data as { token: string; user: any };
+  const d = res.data;
+
+  // Backend might return accessToken / token / access_token
+  const token: string =
+    d.token || d.accessToken || d.access_token;
+
+  if (!token) {
+    throw new Error("Login response missing token");
+  }
+
+  return { token, user: d.user };
 }
 
 // ---- Rooms ----
-// You must implement GET /rooms in backend or adjust here
 export async function fetchRooms(): Promise<Room[]> {
   const res = await api.get("/rooms");
-  return res.data;
+  // controller: { success: true, rooms }
+  return res.data.rooms as Room[];
 }
 
-export async function createRoomApi(name: string, provider?: string) {
+export async function createRoomApi(
+  name: string,
+  provider?: string
+): Promise<Room> {
+  // controller: { success: true, room }
   const res = await api.post("/rooms", { name, provider });
   return res.data.room as Room;
 }
 
-export async function getRoomDetail(roomId: string): Promise<RoomDetail> {
+export async function getRoomDetail(
+  roomId: string
+): Promise<RoomDetail> {
+  // controller: { success: true, room }
   const res = await api.get(`/rooms/${roomId}`);
-  return res.data as RoomDetail;
+  return res.data.room as RoomDetail;
 }
 
-export async function joinRoomApi(roomId: string) {
+export async function joinRoomApi(
+  roomId: string
+): Promise<JoinRoomResult> {
+  // controller: { success: true, data: { room, token } }
   const res = await api.post(`/rooms/${roomId}/join`);
-  return res.data as {
-    room: RoomDetail;
-    token: { provider: string; token: string; expiresAt: string, uid: number};
-  };
+  return res.data.data as JoinRoomResult;
 }
 
 export async function leaveRoomApi(roomId: string) {
+  // controller: { success: true, data: ... }
   await api.post(`/rooms/${roomId}/leave`);
 }
 
 // ---- Seats ----
-export async function requestSeatApi(roomId: string, seatIndex?: number) {
-  await api.post(`/rooms/${roomId}/seat/request`, { seatIndex });
+export async function requestSeatApi(
+  roomId: string,
+  seatIndex?: number
+) {
+  // controller: { success: true, request }
+  const res = await api.post(`/rooms/${roomId}/seat/request`, {
+    seatIndex,
+  });
+  return res.data.request;
 }
 
-export async function approveSeatApi(roomId: string, requestId: string, accept: boolean) {
-  await api.post(`/rooms/${roomId}/seat/approve`, { requestId, accept });
+export async function approveSeatApi(
+  roomId: string,
+  requestId: string,
+  accept: boolean
+) {
+  // controller: { success: true, result, seats }
+  const res = await api.post(`/rooms/${roomId}/seat/approve`, {
+    requestId,
+    accept,
+  });
+  return res.data as {
+    success: boolean;
+    result: any;
+    seats: Seat[];
+  };
 }
 
 export async function leaveSeatApi(roomId: string) {
-  await api.post(`/rooms/${roomId}/seat/leave`);
+  // controller: { success: true, data: ... }
+  const res = await api.post(`/rooms/${roomId}/seat/leave`);
+  return res.data;
 }
 
 // ---- Ban ----
-export async function banUserApi(roomId: string, userId: string, reason?: string) {
-  const res = await api.post(`/rooms/${roomId}/ban`, { userId, reason });
-  return res.data as Ban;
+export async function banUserApi(
+  roomId: string,
+  userId: string,
+  reason?: string
+) {
+  // controller: { success: true, data: Ban }
+  const res = await api.post(`/rooms/${roomId}/ban`, {
+    userId,
+    reason,
+  });
+  return res.data.data as Ban;
 }
 
 export async function unbanUserApi(roomId: string, userId: string) {
+  // controller: { success: true, data: ... }
   await api.delete(`/rooms/${roomId}/ban/${userId}`);
 }

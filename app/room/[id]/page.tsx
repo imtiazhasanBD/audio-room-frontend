@@ -247,11 +247,7 @@ async function toggleMic() {
  async function handleRequestSeat(seatIndex: number) {
   await requestSeatApi(roomId, seatIndex);
 
-  socket?.emit("seat.request", {
-    roomId,
-    userId,
-    seatIndex,
-  });
+
 
   println(`Requested seat ${seatIndex}`);
 }

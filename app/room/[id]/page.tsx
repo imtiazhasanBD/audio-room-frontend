@@ -1,3 +1,7 @@
+
+
+
+
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -6,7 +10,6 @@ import type { IAgoraRTCClient, ILocalAudioTrack } from "agora-rtc-sdk-ng";
 import {
   approveSeatApi,
   banUserApi,
-  getPublisherTokenApi,
   getRoomDetail,
   joinRoomApi,
   leaveRoomApi,
@@ -14,6 +17,7 @@ import {
   Participant,
   requestSeatApi,
   RoomDetail,
+  Seat,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -43,8 +47,6 @@ export default function RoomPage() {
   const [agoraClient, setAgoraClient] = useState<IAgoraRTCClient | null>(null);
   const [localTrack, setLocalTrack] = useState<ILocalAudioTrack | null>(null);
   const [rtcJoined, setRtcJoined] = useState(false);
-  const [isPublisher, setIsPublisher] = useState(false);
-
 
   const [seatRequests, setSeatRequests] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -54,6 +56,9 @@ export default function RoomPage() {
   const user = getCurrentUser();
   const userId = user?.id;
   
+  const mySeat = room?.seats?.find(s => s.userId === userId) || null;
+const canSpeak = !!mySeat && !mySeat.locked && mySeat.userId === userId;
+
 
   function println(msg: string) {
     setLog((prev) => [...prev.slice(-100), msg]);
@@ -121,32 +126,21 @@ export default function RoomPage() {
 
         client.on("user-published", async (user: any, mediaType: any) => {
           if (user.uid === client.uid) return;
-               console.log("Remote user published:", user.uid);
           if (mediaType === "audio") {
             await client.subscribe(user, mediaType);
             user.audioTrack?.play();
-              console.log("🔊 Playing remote audio:", user.uid)
           }
         });
 
-        client.on("user-unpublished", (user: any) => {
-        console.log("Remote user unpublished:", user.uid);
-      });
-
-      client.on("user-left", (user: any) => {
-        console.log("Remote user left:", user.uid);
-      });
-
-
         const track = await AgoraRTC.createMicrophoneAudioTrack();
-        await track.setEnabled(false);
+        await client.publish([track]);
 
         setAgoraClient(client);
         setLocalTrack(track);
         setRtcJoined(true);
         setMicOn(false);
-        setIsPublisher(false);
-        println("Agora joined as audience (subscriber)");
+        await track.setEnabled(false);
+        println("Agora joined & mic published");
       } catch (err) {
         console.error("RTC ERROR:", err);
         println("Failed to join room: " + (err || JSON.stringify(err)));
@@ -206,56 +200,19 @@ export default function RoomPage() {
       println(`${event}: ${JSON.stringify(data)}`);
     });
 
-    s.on("seat.update", (data) => {
-      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
-            // 🔍 Check if current user has a seat now
-      const hasSeat = data.seats?.some(
-        (seat: any) => seat.userId === userId
-      );
+  s.on("seat.update", (data) => {
+  setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
 
-      // ✅ Case 1: user just got a seat → upgrade to publisher
-      if (hasSeat && !isPublisher && agoraClient && localTrack) {
-        (async () => {
-          try {
-            println("🎙 Seat granted. Requesting publisher token...");
-            const token = await getPublisherTokenApi(roomId);
+const stillSeated = data.seats.some((s: Seat) => s.userId === userId);
 
-            // Agora rtc client supports renewToken
-            // @ts-ignore
-            await agoraClient.renewToken(token.token);
+  if (!stillSeated && localTrack) {
+    // Force mute if user lost seat
+    localTrack.setEnabled(false).catch(() => {});
+    setMicOn(false);
+    println("🛑 You are no longer on a seat. Mic disabled.");
+  }
+});
 
-            await localTrack.setEnabled(true);
-            // publish if not already
-            // @ts-ignore
-            await agoraClient.publish([localTrack]);
-
-            setMicOn(true);
-            setIsPublisher(true);
-            println("✅ Upgraded to publisher. Mic live.");
-          } catch (e: any) {
-            console.error("Failed to upgrade to publisher:", e);
-            println(
-              "Failed to upgrade to publisher: " +
-                (e?.message || JSON.stringify(e))
-            );
-          }
-        })();
-      }
-
-      // ❌ Case 2: user lost seat → mute & mark not publisher
-      if (!hasSeat && isPublisher && localTrack && agoraClient) {
-        (async () => {
-          try {
-            // @ts-ignore
-            await agoraClient.unpublish([localTrack]);
-          } catch {}
-          await localTrack.setEnabled(false);
-          setMicOn(false);
-          setIsPublisher(false);
-          println("🛑 Seat lost. Mic disabled and unpublised.");
-        })();
-      }
-    });
 
     s.on("seat.request", (data) => {
       setSeatRequests((prev) => {
@@ -286,7 +243,7 @@ export default function RoomPage() {
     return () => {
       s.disconnect();
     };
-  }, [API_BASE, roomId, userId, agoraClient, localTrack, isPublisher]);
+  }, [API_BASE, roomId, userId]);
 
   // ============================
   // CLEANUP
@@ -305,14 +262,22 @@ export default function RoomPage() {
   // ============================
   // ACTIONS
   // ============================
-  async function toggleMic() {
-    if (!localTrack) return;
-    const next = !micOn;
-    console.log("🎤 SET MIC ENABLED:", next);
-    await localTrack.setEnabled(next);
-    setMicOn(next);
-    socket?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
+async function toggleMic() {
+  if (!localTrack) return;
+
+  if (!canSpeak) {
+    println("❌ You must take a seat to speak");
+    await localTrack.setEnabled(false);
+    setMicOn(false);
+    return;
   }
+
+  const next = !micOn;
+  await localTrack.setEnabled(next);
+  setMicOn(next);
+
+  socket?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
+}
 
   async function handleLeave() {
     try {
@@ -366,14 +331,12 @@ export default function RoomPage() {
           <p className="text-xs text-slate-400">Host: {room.hostId}</p>
         </div>
         <div className="flex gap-2">
-    <button
+ <button
   onClick={toggleMic}
-  disabled={!room?.seats?.some(s => s.userId === userId)}
-  className={`btn ${micOn ? "btn-primary" : ""} ${
-    !room?.seats?.some(s => s.userId === userId) ? "opacity-50 cursor-not-allowed" : ""
-  }`}
+  disabled={!canSpeak}
+  className={`btn ${micOn ? "btn-primary" : ""} ${!canSpeak ? "opacity-50 cursor-not-allowed" : ""}`}
 >
-  {micOn ? "Mic ON" : "Mic OFF"}
+  {canSpeak ? (micOn ? "Mic ON" : "Mic OFF") : "Seat required"}
 </button>
 
           <button className="btn btn-danger" onClick={handleLeave}>

@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import type { IAgoraRTCClient, ILocalAudioTrack } from "agora-rtc-sdk-ng";
@@ -15,6 +16,7 @@ import {
   Participant,
   requestSeatApi,
   RoomDetail,
+  Seat,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -30,8 +32,6 @@ export default function RoomPage() {
   const roomId = params.id;
   const router = useRouter();
 
-  
-
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -39,16 +39,11 @@ export default function RoomPage() {
 
   const [loadingRtc, setLoadingRtc] = useState(true);
   const [roomLoaded, setRoomLoaded] = useState(false);
-  const [micOn, setMicOn] = useState(true);
+  const [micOn, setMicOn] = useState(false);
 
   const [agoraClient, setAgoraClient] = useState<IAgoraRTCClient | null>(null);
   const [localTrack, setLocalTrack] = useState<ILocalAudioTrack | null>(null);
   const [rtcJoined, setRtcJoined] = useState(false);
-  const [isPublisher, setIsPublisher] = useState(false);
-// 🔁 Refs to always hold the latest values for socket callbacks
-const agoraClientRef = useRef<IAgoraRTCClient | null>(null);
-const localTrackRef = useRef<ILocalAudioTrack | null>(null);
-const isPublisherRef = useRef(false);
 
   const [seatRequests, setSeatRequests] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -57,36 +52,56 @@ const isPublisherRef = useRef(false);
   const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID as string;
   const user = getCurrentUser();
   const userId = user?.id;
-  
+
+  // Derived state
+  const mySeat = room?.seats?.find((s) => s.userId === userId) || null;
+  const canSpeak = !!mySeat && !mySeat.locked && mySeat.userId === userId;
+
+  // === REFS FOR PRODUCTION HARDENING ===
+  const agoraClientRef = useRef<IAgoraRTCClient | null>(null);
+  const localTrackRef = useRef<ILocalAudioTrack | null>(null);
+  const rtcJoinedRef = useRef(false);
+  const socketRef = useRef<Socket | null>(null);
+  const micOnRef = useRef(false);
+  const leavingRef = useRef(false);
 
   function println(msg: string) {
     setLog((prev) => [...prev.slice(-100), msg]);
+    // Optionally also console.log:
+    // console.log("[LOG]", msg);
   }
 
+  // Keep refs in sync with state
   useEffect(() => {
-  agoraClientRef.current = agoraClient;
-}, [agoraClient]);
+    agoraClientRef.current = agoraClient;
+  }, [agoraClient]);
 
-useEffect(() => {
-  localTrackRef.current = localTrack;
-}, [localTrack]);
+  useEffect(() => {
+    localTrackRef.current = localTrack;
+  }, [localTrack]);
 
-useEffect(() => {
-  isPublisherRef.current = isPublisher;
-}, [isPublisher]);
+  useEffect(() => {
+    rtcJoinedRef.current = rtcJoined;
+  }, [rtcJoined]);
 
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
+
+  useEffect(() => {
+    micOnRef.current = micOn;
+  }, [micOn]);
 
   // ============================
   // AUTH GUARD
   // ============================
   useEffect(() => {
     if (!getToken()) router.push("/login");
-  }, []);
+  }, [router]);
 
   // ============================
   // FETCH ROOM STATE
   // ============================
-  // Helper function to refresh data safely
   const refreshRoomData = async () => {
     try {
       const roomData = await getRoomDetail(roomId);
@@ -95,6 +110,7 @@ useEffect(() => {
       setRoomLoaded(true);
     } catch (e) {
       console.error("Failed to refresh room", e);
+      println("❌ Failed to refresh room");
     }
   };
 
@@ -103,301 +119,436 @@ useEffect(() => {
   }, [roomId]);
 
   // ============================
-  // RTC JOIN
+  // RTC JOIN (PRODUCTION-HARDENED)
   // ============================
-useEffect(() => {
-  if (!userId || rtcJoined) return;
+  useEffect(() => {
+    if (!userId) return;
+    if (rtcJoinedRef.current) return;
 
-  const joinRtc = async () => {
-    try {
-      const joined = await joinRoomApi(roomId);
+    let cancelled = false;
 
-      if (!AgoraRTC) {
-        const agora = await import("agora-rtc-sdk-ng");
-        AgoraRTC = agora.default;
-      }
+    const joinRtc = async () => {
+      try {
+        println("🔌 Joining RTC...");
 
-      const client = AgoraRTC.createClient({ codec: "vp8", mode: "rtc" });
-      const rtcUid = joined.token.uid;
+        const joined = await joinRoomApi(roomId);
 
-      await client.join(
-        AGORA_APP_ID,
-        `room_${roomId}`,
-        joined.token.token,
-        rtcUid
-      );
-
-      // ✅ FIX: Subscribe to already published users on join
-const remoteUsers = client.remoteUsers;
-
-for (const user of remoteUsers) {
-  console.log("🔁 Subscribing to existing user:", user.uid);
-
-  if (user.hasAudio) {
-    await client.subscribe(user, "audio");
-    user.audioTrack?.play();
-    console.log("✅ Audio recovered for:", user.uid);
-  }
-}
-
-
-      await fetch(`${API_BASE}/rooms/${roomId}/rtc-uid`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${getToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ rtcUid }),
-      });
-
-      client.on("user-published", async (user: any, mediaType: any) => {
-        if (user.uid === client.uid) return;
-        console.log("Remote user published:", user.uid);
-        await client.subscribe(user, mediaType);
-        if (mediaType === "audio") {
-          user.audioTrack?.play();
-          console.log("🔊 Playing remote audio:", user.uid);
+        if (!AgoraRTC) {
+          const agora = await import("agora-rtc-sdk-ng");
+          AgoraRTC = agora.default;
         }
-      });
 
-      client.on("user-unpublished", (user: any) => {
-        console.log("Remote user unpublished:", user.uid);
-      });
-
-      client.on("user-left", (user: any) => {
-        console.log("Remote user left:", user.uid);
-      });
-
-      const track = await AgoraRTC.createMicrophoneAudioTrack();
-      await track.setEnabled(false);
-
-      setAgoraClient(client);
-      setLocalTrack(track);
-      setRtcJoined(true);
-      setMicOn(false);
-      setIsPublisher(false);
-      println("Agora joined as audience (subscriber)");
-    } catch (err) {
-      console.error("RTC ERROR:", err);
-      println("Failed to join room: " + (err || JSON.stringify(err)));
-    } finally {
-      setLoadingRtc(false);
-    }
-  };
-
-  joinRtc();
-}, [rtcJoined, userId]);
-
-
-  // ============================
-  // SOCKET.IO (OPTIMIZED FOR SPEED)
-  // ============================
-useEffect(() => {
-  if (!userId || !API_BASE) return;
-
-  const s = io(API_BASE, {
-    auth: { token: getToken() },
-    query: { roomId, userId },
-  });
-
-  s.on("connect", () => {
-    println("WS connected");
-    s.emit("room.join", { roomId, userId });
-  });
-
-  s.on("room.join", () => {
-    refreshRoomData();
-  });
-
-  s.on("room.leave", (data) => {
-    if (data?.userId) {
-      setParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
-
-      setRoom((prev) => {
-        if (!prev) return null;
-
-        const newSeats = prev.seats.map((seat) => {
-          if (seat.userId === data.userId) {
-            return { ...seat, userId: null, user: null, isMuted: false };
-          }
-          return seat;
+        const client: IAgoraRTCClient = AgoraRTC.createClient({
+          codec: "vp8",
+          mode: "rtc",
         });
 
-        return { ...prev, seats: newSeats as any };
-      });
-    }
-    refreshRoomData();
-  });
+        const rtcUid = joined.token.uid;
 
-  s.onAny((event, data) => {
-    println(`${event}: ${JSON.stringify(data)}`);
-  });
+        // JOIN CHANNEL
+        await client.join(
+          AGORA_APP_ID,
+          `room_${roomId}`,
+          joined.token.token,
+          rtcUid
+        );
 
-s.on("seat.update", (data) => {
-  // 1️⃣ Update room seats
-  setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
+        if (cancelled) {
+          await client.leave();
+          return;
+        }
 
-  // 2️⃣ Determine if *this* user has a seat
-  const hasSeat = data.seats?.some(
-    (seat: any) => seat.userId === userId
-  );
+        // REGISTER RTC UID WITH BACKEND
+        await fetch(`${API_BASE}/rooms/${roomId}/rtc-uid`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ rtcUid }),
+        });
 
+        // CREATE MIC IMMEDIATELY (UNLOCKS BROWSER AUDIO POLICY)
+        const track: ILocalAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        await track.setEnabled(false); // Start muted
+
+        // Save in state + refs
+        setAgoraClient(client);
+        setLocalTrack(track);
+        setRtcJoined(true);
+        setMicOn(false);
+        println("✅ RTC joined, mic created (muted)");
+
+        // === AGORA EVENT HANDLERS ===
+
+        // Subscribe to newly published remote users
+        client.on("user-published", async (user: any, mediaType: any) => {
+          if (user.uid === rtcUid) return;
+          if (mediaType === "audio") {
+            try {
+              await client.subscribe(user, mediaType);
+              user.audioTrack?.play();
+              println(`🔊 Subscribed to remote audio: ${user.uid}`);
+            } catch (e) {
+              console.error("Subscribe error:", e);
+              println("❌ Failed to subscribe to remote user");
+            }
+          }
+        });
+
+        // Subscribe to already existing users
+        const remoteUsers = client.remoteUsers;
+        for (const user of remoteUsers) {
+          // @ts-ignore
+          if (user.hasAudio) {
+            try {
+              await client.subscribe(user, "audio");
+              user.audioTrack?.play();
+              println(`🔁 Subscribed to existing remote audio: ${user.uid}`);
+            } catch (e) {
+              console.error("Subscribe existing user error:", e);
+            }
+          }
+        }
+
+        // Connection state logging
+        client.on(
+          "connection-state-change",
+          (curState: string, prevState: string) => {
+            println(`🌐 RTC state: ${prevState} → ${curState}`);
+          }
+        );
+
+        // Network quality logging
+        client.on("network-quality", (stats: any) => {
+          const { uplinkNetworkQuality, downlinkNetworkQuality } = stats;
+          println(
+            `📶 Network quality - up: ${uplinkNetworkQuality}, down: ${downlinkNetworkQuality}`
+          );
+        });
+
+        // OPTIONAL: token renewal (if your tokens expire)
+        client.on("token-privilege-will-expire", async () => {
+          println("⚠️ RTC token will expire soon, renewing...");
+          try {
+            const renewed = await joinRoomApi(roomId);
+            await client.renewToken(renewed.token.token);
+            println("✅ RTC token renewed");
+          } catch (e) {
+            console.error("Failed to renew token:", e);
+            println("❌ Failed to renew RTC token");
+          }
+        });
+
+        client.on("token-privilege-did-expire", () => {
+          println("❌ RTC token expired");
+          // You may want to force a full reconnect here in future.
+        });
+      } catch (err) {
+        console.error("RTC ERROR:", err);
+        println("❌ Failed to join RTC: " + (err as any)?.message || "unknown");
+      } finally {
+        if (!cancelled) {
+          setLoadingRtc(false);
+        }
+      }
+    };
+
+    joinRtc();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API_BASE, AGORA_APP_ID, roomId, userId]);
+
+  // ============================
+  // SOCKET.IO (PRODUCTION-HARDENED)
+  // ============================
+  useEffect(() => {
+    if (!userId || !API_BASE) return;
+    if (socketRef.current) return; // avoid double connect (StrictMode)
+
+    println("🔌 Connecting WebSocket...");
+
+    const s = io(API_BASE, {
+      auth: { token: getToken() },
+      query: { roomId, userId },
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 5000,
+    });
+
+    s.on("connect", () => {
+      println("✅ WS connected");
+      s.emit("room.join", { roomId, userId });
+    });
+
+    s.on("disconnect", (reason) => {
+      println(`⚠️ WS disconnected: ${reason}`);
+    });
+
+    s.on("reconnect_attempt", (attempt) => {
+      println(`🔄 WS reconnect attempt #${attempt}`);
+    });
+
+    s.on("reconnect", () => {
+      println("✅ WS reconnected, rejoining room...");
+      s.emit("room.join", { roomId, userId });
+      refreshRoomData();
+    });
+
+    s.on("connect_error", (err) => {
+      console.error("WS connect error:", err);
+      println("❌ WS connect error: " + (err as any)?.message || "unknown");
+    });
+
+    s.on("room.join", () => {
+      refreshRoomData();
+    });
+
+    s.on("room.leave", (data) => {
+      if (data?.userId) {
+        setParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
+
+        setRoom((prev) => {
+          if (!prev) return null;
+
+          const newSeats = prev.seats.map((seat) => {
+            if (seat.userId === data.userId) {
+              return { ...seat, userId: null, user: null, isMuted: false };
+            }
+            return seat;
+          });
+
+          return { ...prev, seats: newSeats as any };
+        });
+      }
+      refreshRoomData();
+    });
+
+s.on("seat.update", async (data) => {
+  setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
+
+  const hasSeat = data.seats.some((s: Seat) => s.userId === userId);
   const client = agoraClientRef.current;
   const track = localTrackRef.current;
-  const currentlyPublisher = isPublisherRef.current;
 
-  // 3️⃣ Case 1: user just got a seat → become publisher
-  if (hasSeat && !currentlyPublisher && client && track) {
-    (async () => {
-      try {
-        println("🎙 Seat granted. Requesting publisher token...");
-        const token = await getPublisherTokenApi(roomId);
+  if (!client || !track) return;
 
-        // @ts-ignore
-        await client.renewToken(token.token);
+  // ✅ GOT SEAT → ENABLE MIC & UPGRADE TOKEN & PUBLISH
+  if (hasSeat && !micOnRef.current) {
+    try {
+      println("🔐 Requesting publisher token...");
+      const token = await getPublisherTokenApi(roomId);
 
-        await track.setEnabled(true);
-        // @ts-ignore
-        await client.publish([track]);
+      await client.renewToken(token.token);
 
-        setMicOn(true);
-        setIsPublisher(true);
-        println("✅ Upgraded to publisher. Mic live.");
-      } catch (e: any) {
-        console.error("Failed to upgrade to publisher:", e);
-        println(
-          "Failed to upgrade to publisher: " +
-            (e?.message || JSON.stringify(e))
-        );
-      }
-    })();
+      println("🎙 Enabling mic...");
+      await track.setEnabled(true);
+
+      println("🚀 Publishing mic...");
+      await client.publish([track]);
+
+      setMicOn(true);
+      micOnRef.current = true;
+
+      println("✅ Publishing as publisher");
+    } catch (e: any) {
+      console.error("Upgrade to publisher failed:", e);
+      println("❌ Failed to become publisher: " + (e?.message || JSON.stringify(e)));
+    }
   }
 
-  // 4️⃣ Case 2: user lost seat → unpublish & mute
-  if (!hasSeat && currentlyPublisher && client && track) {
-    (async () => {
-      try {
-        // @ts-ignore
-        await client.unpublish([track]);
-      } catch (e) {
-        console.warn("Unpublish error (safe to ignore):", e);
-      }
+  // ✅ LOST SEAT → UNPUBLISH & DISABLE
+  if (!hasSeat && micOnRef.current) {
+    try {
+      println("🛑 Seat lost → unpublishing mic");
+
+      await client.unpublish([track]);
       await track.setEnabled(false);
+
       setMicOn(false);
-      setIsPublisher(false);
-      println("🛑 Seat lost. Mic disabled and unpublished.");
-    })();
+      micOnRef.current = false;
+    } catch (e) {
+      console.warn("Unpublish warning:", e);
+    }
   }
 });
 
 
-  s.on("seat.request", (data) => {
-    setSeatRequests((prev) => {
-      if (prev.some((r) => r.id === data.request.id)) return prev;
-      return [...prev, data.request];
+
+    s.on("seat.request", (data) => {
+      setSeatRequests((prev) => {
+        if (prev.some((r) => r.id === data.request.id)) return prev;
+        return [...prev, data.request];
+      });
+      setShowModal(true);
     });
-    setShowModal(true);
-  });
 
-  s.on("user.micOn", (payload) => {
-    setParticipants((prev) =>
-      prev.map((p) =>
-        p.userId === payload.userId ? { ...p, muted: false } : p
-      )
-    );
-  });
+    s.on("user.micOn", (payload) => {
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.userId === payload.userId ? { ...p, muted: false } : p
+        )
+      );
+    });
 
-  s.on("user.micOff", (payload) => {
-    setParticipants((prev) =>
-      prev.map((p) =>
-        p.userId === payload.userId ? { ...p, muted: true } : p
-      )
-    );
-  });
+    s.on("user.micOff", (payload) => {
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.userId === payload.userId ? { ...p, muted: true } : p
+        )
+      );
+    });
 
-  setSocket(s);
+    s.onAny((event, data) => {
+      println(`${event}: ${JSON.stringify(data)}`);
+    });
 
-  return () => {
-    s.disconnect();
-  };
-}, [API_BASE, roomId, userId]); // 🔥 ONLY THESE
+    setSocket(s);
+    socketRef.current = s;
 
-
-
-
+    return () => {
+      s.disconnect();
+      socketRef.current = null;
+    };
+  }, [API_BASE, roomId, userId]);
 
   // ============================
-  // CLEANUP
+  // PAGE / TAB LIFECYCLE CLEANUP
   // ============================
-
   useEffect(() => {
-  const beforeUnload = () => {
-    socket?.emit("room.leave", { roomId, userId });
-  };
+    const handleBeforeUnload = () => {
+      if (leavingRef.current) return;
+      leavingRef.current = true;
 
-  window.addEventListener("beforeunload", beforeUnload);
+      try {
+        const s = socketRef.current;
+        if (s) {
+          s.emit("room.leave", { roomId, userId });
+          s.disconnect();
+        }
 
-  return () => window.removeEventListener("beforeunload", beforeUnload);
-}, [socket]);
+        const client = agoraClientRef.current;
+        const track = localTrackRef.current;
 
+        if (track) {
+          track.stop();
+          track.close();
+        }
 
+        if (client) {
+          client.leave();
+        }
+      } catch {}
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [roomId, userId]);
+
+  // COMPONENT UNMOUNT CLEANUP
   useEffect(() => {
     return () => {
       try {
-        localTrack?.stop();
-        localTrack?.close();
-        agoraClient?.leave();
-        socket?.disconnect();
+        leavingRef.current = true;
+
+        const s = socketRef.current;
+        if (s) {
+          s.emit("room.leave", { roomId, userId });
+          s.disconnect();
+        }
+
+        const client = agoraClientRef.current;
+        const track = localTrackRef.current;
+
+        if (track) {
+          track.stop();
+          track.close();
+        }
+
+        if (client) {
+          client.leave();
+        }
       } catch {}
     };
-  }, []);
+  }, [roomId, userId]);
 
   // ============================
   // ACTIONS
   // ============================
-async function toggleMic() {
-  if (!localTrack) return;
-  const next = !micOn;
-  console.log("🎤 SET MIC ENABLED:", next);
-  await localTrack.setEnabled(next);
-  setMicOn(next);
-  socket?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
-}
+  async function toggleMic() {
+    const track = localTrackRef.current;
+    const s = socketRef.current;
 
-async function handleLeave() {
-  try {
-    await leaveSeatApi(roomId);
-    await leaveRoomApi(roomId);
-  } catch {}
-  localTrack?.stop();
-  localTrack?.close();
-  await agoraClient?.leave().catch(() => {});
-  socket?.emit("room.leave", { roomId, userId });
-  router.push("/rooms");
-}
+    if (!track) return;
 
+    if (!canSpeak) {
+      println("❌ You must take a seat to speak");
+      await track.setEnabled(false);
+      setMicOn(false);
+      return;
+    }
 
-async function handleSeatClick(seatIndex: number) {
-  if (!room) return;
-
-  const isHost = userId === room.hostId;
-
-  if (isHost) {
-    println(`HOST taking seat ${seatIndex}`);
-
-    const res = await hostTakeSeatApi(roomId, seatIndex);
-
-    // ✅ update UI immediately
-    setRoom((prev) =>
-      prev ? { ...prev, seats: res.seats } : prev
-    );
-
-  } else {
-    println(`USER requesting seat ${seatIndex}`);
-    await requestSeatApi(roomId, seatIndex);
+    const next = !micOnRef.current;
+    try {
+      await track.setEnabled(next);
+      setMicOn(next);
+      s?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
+    } catch (e) {
+      console.error("Mic toggle error:", e);
+      println("❌ Failed to toggle mic");
+    }
   }
-}
 
+  async function handleLeave() {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+
+    try {
+      await leaveSeatApi(roomId);
+      await leaveRoomApi(roomId);
+    } catch {}
+
+    try {
+      const s = socketRef.current;
+      if (s) {
+        s.emit("room.leave", { roomId, userId });
+        s.disconnect();
+      }
+
+      const client = agoraClientRef.current;
+      const track = localTrackRef.current;
+
+      if (track) {
+        track.stop();
+        track.close();
+      }
+
+      if (client) {
+        await client.leave();
+      }
+    } catch {}
+
+    router.push("/rooms");
+  }
+
+  async function handleSeatClick(seatIndex: number) {
+    if (!room) return;
+
+    const isHost = userId === room.hostId;
+
+    if (isHost) {
+      println(`HOST taking seat ${seatIndex}`);
+      const res = await hostTakeSeatApi(roomId, seatIndex);
+      setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+    } else {
+      println(`USER requesting seat ${seatIndex}`);
+      await requestSeatApi(roomId, seatIndex);
+    }
+  }
 
   async function approveSeat(id: string) {
     await approveSeatApi(roomId, id, true);
@@ -411,7 +562,6 @@ async function handleSeatClick(seatIndex: number) {
 
   async function handleBan(targetId: string) {
     await banUserApi(roomId, targetId);
-    // Refresh to update list immediately after ban
     refreshRoomData();
   }
 
@@ -434,15 +584,15 @@ async function handleSeatClick(seatIndex: number) {
           <p className="text-xs text-slate-400">Host: {room.hostId}</p>
         </div>
         <div className="flex gap-2">
-    <button
-  onClick={toggleMic}
-  disabled={!room?.seats?.some(s => s.userId === userId)}
-  className={`btn ${micOn ? "btn-primary" : ""} ${
-    !room?.seats?.some(s => s.userId === userId) ? "opacity-50 cursor-not-allowed" : ""
-  }`}
->
-  {micOn ? "Mic ON" : "Mic OFF"}
-</button>
+          <button
+            onClick={toggleMic}
+            disabled={!canSpeak}
+            className={`btn ${micOn ? "btn-primary" : ""} ${
+              !canSpeak ? "opacity-50 cursor-not-allowed" : ""
+            }`}
+          >
+            {canSpeak ? (micOn ? "Mic ON" : "Mic OFF") : "Seat required"}
+          </button>
 
           <button className="btn btn-danger" onClick={handleLeave}>
             Leave
@@ -463,7 +613,6 @@ async function handleSeatClick(seatIndex: number) {
           </div>
           <div className="card mt-4">
             <h3 className="mb-1">Logs</h3>
-
             <pre className="bg-black p-2 text-xs h-40 overflow-auto">
               {log.join("\n")}
             </pre>

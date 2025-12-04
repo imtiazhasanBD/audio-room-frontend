@@ -328,7 +328,7 @@ export default function RoomPage() {
       refreshRoomData();
     });
 
-s.on("seat.update", async (data) => {
+  s.on("seat.update", async (data) => {
   setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
 
   const hasSeat = data.seats.some((s: Seat) => s.userId === userId);
@@ -337,31 +337,32 @@ s.on("seat.update", async (data) => {
 
   if (!client || !track) return;
 
-  // ✅ GOT SEAT → ENABLE MIC & UPGRADE TOKEN & PUBLISH
+  // ✅ USER GOT SEAT → UPGRADE ROLE
   if (hasSeat && !micOnRef.current) {
     try {
       println("🔐 Requesting publisher token...");
+
       const token = await getPublisherTokenApi(roomId);
 
       await client.renewToken(token.token);
 
-      println("🎙 Enabling mic...");
-      await track.setEnabled(true);
+      println("🎙 Publishing mic...");
 
-      println("🚀 Publishing mic...");
-      await client.publish([track]);
+ await track.setEnabled(true);
+await client.publish([track]);
+
 
       setMicOn(true);
       micOnRef.current = true;
 
-      println("✅ Publishing as publisher");
+      println("✅ Publishing as publisher (role upgraded).");
     } catch (e: any) {
       console.error("Upgrade to publisher failed:", e);
       println("❌ Failed to become publisher: " + (e?.message || JSON.stringify(e)));
     }
   }
 
-  // ✅ LOST SEAT → UNPUBLISH & DISABLE
+  // ✅ LOST SEAT → DOWNGRADE
   if (!hasSeat && micOnRef.current) {
     try {
       println("🛑 Seat lost → unpublishing mic");
@@ -376,7 +377,6 @@ s.on("seat.update", async (data) => {
     }
   }
 });
-
 
 
     s.on("seat.request", (data) => {

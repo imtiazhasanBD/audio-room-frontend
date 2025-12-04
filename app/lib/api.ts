@@ -77,6 +77,7 @@ export type Participant = {
   id: string;
   roomId: string;
   userId: string;
+  rtcUid: string,
   isHost: boolean;
   muted: boolean;
 };

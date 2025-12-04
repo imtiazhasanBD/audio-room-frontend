@@ -64,6 +64,8 @@ export default function RoomPage() {
   const socketRef = useRef<Socket | null>(null);
   const micOnRef = useRef(false);
   const leavingRef = useRef(false);
+  const hadSeatRef = useRef(false);
+
 
   function println(msg: string) {
     setLog((prev) => [...prev.slice(-100), msg]);
@@ -328,55 +330,55 @@ export default function RoomPage() {
       refreshRoomData();
     });
 
-  s.on("seat.update", async (data) => {
+s.on("seat.update", async (data) => {
   setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
 
   const hasSeat = data.seats.some((s: Seat) => s.userId === userId);
+  const hadSeat = hadSeatRef.current;
+
   const client = agoraClientRef.current;
   const track = localTrackRef.current;
 
   if (!client || !track) return;
 
-  // ✅ USER GOT SEAT → UPGRADE ROLE
-  if (hasSeat && !micOnRef.current) {
+  // ✅ USER JUST RECEIVED SEAT
+  if (hasSeat && !hadSeat) {
     try {
-      println("🔐 Requesting publisher token...");
+      println("🪑 Seat granted → upgrading to publisher");
 
       const token = await getPublisherTokenApi(roomId);
-
       await client.renewToken(token.token);
 
-      println("🎙 Publishing mic...");
+      await track.setEnabled(true);
+      await client.publish([track]);
 
- await track.setEnabled(true);
-await client.publish([track]);
-
-
-      setMicOn(true);
       micOnRef.current = true;
+      setMicOn(true);
 
-      println("✅ Publishing as publisher (role upgraded).");
+      println("✅ Publisher enabled (mic ON due to new seat)");
     } catch (e: any) {
-      console.error("Upgrade to publisher failed:", e);
-      println("❌ Failed to become publisher: " + (e?.message || JSON.stringify(e)));
+      console.error("Upgrade failed:", e);
+      println("❌ Failed to become publisher: " + e?.message);
     }
   }
 
-  // ✅ LOST SEAT → DOWNGRADE
-  if (!hasSeat && micOnRef.current) {
+  // ✅ USER JUST LOST SEAT
+  if (!hasSeat && hadSeat) {
     try {
-      println("🛑 Seat lost → unpublishing mic");
+      println("🛑 Seat removed → unpublishing mic");
 
       await client.unpublish([track]);
       await track.setEnabled(false);
 
-      setMicOn(false);
       micOnRef.current = false;
-    } catch (e) {
-      console.warn("Unpublish warning:", e);
-    }
+      setMicOn(false);
+    } catch {}
   }
+
+  // ✅ REMEMBER CURRENT SEAT STATE
+  hadSeatRef.current = hasSeat;
 });
+
 
 
     s.on("seat.request", (data) => {

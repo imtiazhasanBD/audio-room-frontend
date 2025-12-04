@@ -173,6 +173,14 @@ export async function leaveRoomApi(roomId: string) {
   await api.post(`/rooms/${roomId}/leave`);
 }
 
+
+export async function hostTakeSeatApi(roomId: string, seatIndex: number) {
+  const res = await api.post(`/rooms/${roomId}/seat/host`, { seatIndex });
+  return res.data as { ok: boolean; seats: any[] };
+}
+
+
+
 // ---- Seats ----
 export async function requestSeatApi(
   roomId: string,

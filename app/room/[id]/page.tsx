@@ -127,6 +127,20 @@ useEffect(() => {
         rtcUid
       );
 
+      // ✅ FIX: Subscribe to already published users on join
+const remoteUsers = client.remoteUsers;
+
+for (const user of remoteUsers) {
+  console.log("🔁 Subscribing to existing user:", user.uid);
+
+  if (user.hasAudio) {
+    await client.subscribe(user, "audio");
+    user.audioTrack?.play();
+    console.log("✅ Audio recovered for:", user.uid);
+  }
+}
+
+
       await fetch(`${API_BASE}/rooms/${roomId}/rtc-uid`, {
         method: "POST",
         headers: {
@@ -139,8 +153,8 @@ useEffect(() => {
       client.on("user-published", async (user: any, mediaType: any) => {
         if (user.uid === client.uid) return;
         console.log("Remote user published:", user.uid);
+        await client.subscribe(user, mediaType);
         if (mediaType === "audio") {
-          await client.subscribe(user, mediaType);
           user.audioTrack?.play();
           console.log("🔊 Playing remote audio:", user.uid);
         }
@@ -307,6 +321,9 @@ s.on("seat.update", (data) => {
     s.disconnect();
   };
 }, [API_BASE, roomId, userId]); // 🔥 ONLY THESE
+
+
+
 
 
   // ============================

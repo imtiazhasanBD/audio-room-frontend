@@ -31,11 +31,8 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const data = error.response?.data;
 
-    console.error("API ERROR:", {
-      status,
-      data,
-      message: error.message,
-    });
+console.error("API ERROR RAW:", error.response);
+
 
     if (status === 401 && typeof window !== "undefined") {
       // Token invalid/expired → force logout to login page
@@ -71,6 +68,7 @@ export type Seat = {
   userId: string | null;
   micOn: boolean;
   locked: boolean;
+  mode: string
 };
 
 export type Participant = {
@@ -141,13 +139,11 @@ export async function createRoomApi(
   return res.data.room as Room;
 }
 
-export async function getRoomDetail(
-  roomId: string
-): Promise<RoomDetail> {
-  // controller: { success: true, room }
+export async function getRoomDetail(roomId: string): Promise<RoomDetail> {
   const res = await api.get(`/rooms/${roomId}`);
-  return res.data.room as RoomDetail;
+  return res.data.room ?? res.data.data?.room;
 }
+
 
 export async function getPublisherTokenApi(roomId: string) {
   const res = await api.post(`/rooms/${roomId}/rtc/publisher`);
@@ -180,6 +176,10 @@ export async function hostTakeSeatApi(roomId: string, seatIndex: number) {
   return res.data as { ok: boolean; seats: any[] };
 }
 
+export async function takeSeatApi(roomId: string, seatIndex: number) {
+  const res = await api.post(`/rooms/${roomId}/seat/take`, { seatIndex });
+  return res.data;
+}
 
 
 // ---- Seats ----
@@ -187,6 +187,8 @@ export async function requestSeatApi(
   roomId: string,
   seatIndex?: number
 ) {
+
+  
   // controller: { success: true, request }
   const res = await api.post(`/rooms/${roomId}/seat/request`, {
     seatIndex,
@@ -199,16 +201,22 @@ export async function approveSeatApi(
   requestId: string,
   accept: boolean
 ) {
-  // controller: { success: true, result, seats }
   const res = await api.post(`/rooms/${roomId}/seat/approve`, {
     requestId,
     accept,
   });
-  return res.data as {
-    success: boolean;
-    result: any;
-    seats: Seat[];
+
+  return {
+    ok: res.data.ok,
+    seats: res.data.seats,
+    seatIndex: res.data.seatIndex,
   };
+}
+
+
+export async function changeSeatModeApi(roomId: string, seatIndex: number, mode: string) {
+  const res = await api.post(`/rooms/${roomId}/seat/mode`, { seatIndex, mode });
+  return res.data;
 }
 
 export async function leaveSeatApi(roomId: string) {

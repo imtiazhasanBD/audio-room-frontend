@@ -7,6 +7,7 @@ import type { IAgoraRTCClient, ILocalAudioTrack } from "agora-rtc-sdk-ng";
 import {
   approveSeatApi,
   banUserApi,
+  changeSeatModeApi,
   getPublisherTokenApi,
   getRoomDetail,
   hostTakeSeatApi,
@@ -23,6 +24,7 @@ import { SeatGrid } from "@/app/components/SeatGrid";
 import { UserList } from "@/app/components/UserList";
 import { HostPanel } from "@/app/components/HostPanel";
 import SeatApprovalModal from "@/app/components/SeatApprovalModal";
+import SeatModeModal from "@/app/components/SeatModeModal";
 
 // GLOBAL SINGLETON
 let AgoraRTC: any = null;
@@ -47,6 +49,10 @@ export default function RoomPage() {
 
   const [seatRequests, setSeatRequests] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [modeModalOpen, setModeModalOpen] = useState(false);
+  const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(
+    null
+  );
 
   const API_BASE = process.env.NEXT_PUBLIC_API as string;
   const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID as string;
@@ -55,7 +61,10 @@ export default function RoomPage() {
 
   // Derived state
   const mySeat = room?.seats?.find((s) => s.userId === userId) || null;
-  const canSpeak = !!mySeat && !mySeat.locked && mySeat.userId === userId;
+  const canSpeak =
+    !!mySeat && mySeat.userId === userId && mySeat.mode !== "LOCKED";
+
+  const [speakers, setSpeakers] = useState<Record<string, number>>({});
 
   // === REFS FOR PRODUCTION HARDENING ===
   const agoraClientRef = useRef<IAgoraRTCClient | null>(null);
@@ -65,7 +74,6 @@ export default function RoomPage() {
   const micOnRef = useRef(false);
   const leavingRef = useRef(false);
   const hadSeatRef = useRef(false);
-
 
   function println(msg: string) {
     setLog((prev) => [...prev.slice(-100), msg]);
@@ -144,7 +152,7 @@ export default function RoomPage() {
           codec: "vp8",
           mode: "rtc",
         });
-
+        client.enableAudioVolumeIndicator();
         const rtcUid = joined.token.uid;
 
         // JOIN CHANNEL
@@ -171,7 +179,8 @@ export default function RoomPage() {
         });
 
         // CREATE MIC IMMEDIATELY (UNLOCKS BROWSER AUDIO POLICY)
-        const track: ILocalAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        const track: ILocalAudioTrack =
+          await AgoraRTC.createMicrophoneAudioTrack();
         await track.setEnabled(false); // Start muted
 
         // Save in state + refs
@@ -212,6 +221,22 @@ export default function RoomPage() {
             }
           }
         }
+
+        client.on("volume-indicator", (volumes) => {
+          setSpeakers((prev) => {
+            const next = { ...prev };
+
+            volumes.forEach((v) => {
+              if (v.level > 5) {
+                next[String(v.uid)] = v.level;
+              } else {
+                delete next[String(v.uid)];
+              }
+            });
+
+            return next;
+          });
+        });
 
         // Connection state logging
         client.on(
@@ -330,56 +355,56 @@ export default function RoomPage() {
       refreshRoomData();
     });
 
-s.on("seat.update", async (data) => {
-  setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
+    s.on("seat.update", async (data) => {
+      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
 
-  const hasSeat = data.seats.some((s: Seat) => s.userId === userId);
-  const hadSeat = hadSeatRef.current;
+      const myNewSeat = data.seats.find((s: Seat) => s.userId === userId);
+      const hasSeat = !!myNewSeat && myNewSeat.mode !== "LOCKED";
 
-  const client = agoraClientRef.current;
-  const track = localTrackRef.current;
+      const hadSeat = hadSeatRef.current;
 
-  if (!client || !track) return;
+      const client = agoraClientRef.current;
+      const track = localTrackRef.current;
 
-  // ✅ USER JUST RECEIVED SEAT
-  if (hasSeat && !hadSeat) {
-    try {
-      println("🪑 Seat granted → upgrading to publisher");
+      if (!client || !track) return;
 
-      const token = await getPublisherTokenApi(roomId);
-      await client.renewToken(token.token);
+      // ✅ USER JUST RECEIVED SEAT
+      if (hasSeat && !hadSeat) {
+        try {
+          println("🪑 Seat granted → upgrading to publisher");
 
-      await track.setEnabled(true);
-      await client.publish([track]);
+          const token = await getPublisherTokenApi(roomId);
+          await client.renewToken(token.token);
 
-      micOnRef.current = true;
-      setMicOn(true);
+          await track.setEnabled(true);
+          await client.publish([track]);
 
-      println("✅ Publisher enabled (mic ON due to new seat)");
-    } catch (e: any) {
-      console.error("Upgrade failed:", e);
-      println("❌ Failed to become publisher: " + e?.message);
-    }
-  }
+          micOnRef.current = true;
+          setMicOn(true);
 
-  // ✅ USER JUST LOST SEAT
-  if (!hasSeat && hadSeat) {
-    try {
-      println("🛑 Seat removed → unpublishing mic");
+          println("✅ Publisher enabled (mic ON due to new seat)");
+        } catch (e: any) {
+          console.error("Upgrade failed:", e);
+          println("❌ Failed to become publisher: " + e?.message);
+        }
+      }
 
-      await client.unpublish([track]);
-      await track.setEnabled(false);
+      // ✅ USER JUST LOST SEAT
+      if (!hasSeat && hadSeat) {
+        try {
+          println("🛑 Seat removed → unpublishing mic");
 
-      micOnRef.current = false;
-      setMicOn(false);
-    } catch {}
-  }
+          await client.unpublish([track]);
+          await track.setEnabled(false);
 
-  // ✅ REMEMBER CURRENT SEAT STATE
-  hadSeatRef.current = hasSeat;
-});
+          micOnRef.current = false;
+          setMicOn(false);
+        } catch {}
+      }
 
-
+      // ✅ REMEMBER CURRENT SEAT STATE
+      hadSeatRef.current = hasSeat;
+    });
 
     s.on("seat.request", (data) => {
       setSeatRequests((prev) => {
@@ -481,6 +506,21 @@ s.on("seat.update", async (data) => {
   // ============================
   // ACTIONS
   // ============================
+
+  function handleHostSeatClick(seatIndex: number) {
+    setSelectedSeatIndex(seatIndex);
+    setModeModalOpen(true);
+  }
+
+  async function applySeatMode(mode: string) {
+    if (selectedSeatIndex == null) return;
+
+    await changeSeatModeApi(roomId, selectedSeatIndex, mode);
+
+    setModeModalOpen(false);
+    setSelectedSeatIndex(null);
+  }
+
   async function toggleMic() {
     const track = localTrackRef.current;
     const s = socketRef.current;
@@ -540,25 +580,52 @@ s.on("seat.update", async (data) => {
   async function handleSeatClick(seatIndex: number) {
     if (!room) return;
 
+    const seat = room.seats[seatIndex];
     const isHost = userId === room.hostId;
 
+    // --- HOST LOGIC ---
     if (isHost) {
-      println(`HOST taking seat ${seatIndex}`);
-      const res = await hostTakeSeatApi(roomId, seatIndex);
-      setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
-    } else {
-      println(`USER requesting seat ${seatIndex}`);
+      // If user clicked the settings icon, mode modal opens (handled elsewhere)
+      if (seat.userId !== userId) {
+        // Host taking a different seat (seat switching)
+        const res = await hostTakeSeatApi(roomId, seatIndex);
+        setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+      }
+      return;
+    }
+
+    // --- AUDIENCE LOGIC ---
+    if (seat.mode === "LOCKED") {
+      println("❌ Seat is locked");
+      return;
+    }
+
+    if (seat.mode === "FREE" && !seat.userId) {
+      // Auto join seat
+      println(`Auto joining free seat ${seatIndex}`);
       await requestSeatApi(roomId, seatIndex);
+      return;
+    }
+
+    if (seat.mode === "REQUEST") {
+      println(`Requesting seat ${seatIndex}`);
+      await requestSeatApi(roomId, seatIndex);
+      return;
     }
   }
 
   async function approveSeat(id: string) {
-    await approveSeatApi(roomId, id, true);
+    const res = await approveSeatApi(roomId, id, true);
+
+    // update seats immediately
+    setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+
+    // remove from modal list
     setSeatRequests((r) => r.filter((x) => x.id !== id));
   }
 
   async function denySeat(id: string) {
-    await approveSeatApi(roomId, id, false);
+    const res = await approveSeatApi(roomId, id, false);
     setSeatRequests((r) => r.filter((x) => x.id !== id));
   }
 
@@ -611,6 +678,9 @@ s.on("seat.update", async (data) => {
               seats={room.seats}
               hostId={room.hostId}
               onRequestSeat={handleSeatClick}
+              participants={participants}
+              speakers={speakers}
+              onClickSeatAsHost={handleHostSeatClick}
             />
           </div>
           <div className="card mt-4">
@@ -620,19 +690,16 @@ s.on("seat.update", async (data) => {
             </pre>
           </div>
         </div>
-
-        <div className="space-y-4">
-          <UserList participants={participants} />
-          {isHost && (
-            <HostPanel
-              participants={participants}
-              onBan={handleBan}
-              onMute={() => {}}
-              onKick={() => {}}
-            />
-          )}
-        </div>
       </main>
+
+      {isHost && (
+        <SeatModeModal
+          open={modeModalOpen}
+          seatIndex={selectedSeatIndex}
+          onClose={() => setModeModalOpen(false)}
+          onChangeMode={applySeatMode}
+        />
+      )}
 
       {isHost && (
         <SeatApprovalModal

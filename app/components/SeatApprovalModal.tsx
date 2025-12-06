@@ -50,7 +50,8 @@ export default function SeatApprovalModal({
               >
                 <div>
                   <div className="text-xs font-medium">
-                    User: {r.userId.slice(0, 8)}
+                  {r.userId ? r.userId.slice(0, 6) : "Unknown"}
+
                   </div>
                   <div className="text-[11px] text-slate-400">
                     Requested seat:{" "}

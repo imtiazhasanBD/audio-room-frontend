@@ -18,6 +18,7 @@ import {
   requestSeatApi,
   RoomDetail,
   Seat,
+  takeSeatApi,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -369,25 +370,37 @@ export default function RoomPage() {
       if (!client || !track) return;
 
       // ✅ USER JUST RECEIVED SEAT
-      if (hasSeat && !hadSeat) {
-        try {
-          println("🪑 Seat granted → upgrading to publisher");
+ if (hasSeat && !hadSeat) {
+  println("🔍 Verifying seat before publishing…");
 
-          const token = await getPublisherTokenApi(roomId);
-          await client.renewToken(token.token);
+  // Refresh room to ensure DB is synced
+  const fresh = await getRoomDetail(roomId);
+  const confirmSeat = fresh.seats.some((s) => s.userId === userId);
 
-          await track.setEnabled(true);
-          await client.publish([track]);
+  if (!confirmSeat) {
+    println("❌ Backend has not assigned seat yet → skipping publish");
+    return;
+  }
 
-          micOnRef.current = true;
-          setMicOn(true);
+  println("✅ Seat confirmed → requesting publisher token");
 
-          println("✅ Publisher enabled (mic ON due to new seat)");
-        } catch (e: any) {
-          console.error("Upgrade failed:", e);
-          println("❌ Failed to become publisher: " + e?.message);
-        }
-      }
+  try {
+    const token = await getPublisherTokenApi(roomId);
+    await client.renewToken(token.token);
+
+    await track.setEnabled(true);
+    await client.publish([track]);
+
+    setMicOn(true);
+    micOnRef.current = true;
+
+    println("🎤 Publishing mic (publisher role)");
+  } catch (err) {
+    console.error(err);
+    println("❌ Failed to publish mic");
+  }
+}
+
 
       // ✅ USER JUST LOST SEAT
       if (!hasSeat && hadSeat) {
@@ -582,13 +595,14 @@ export default function RoomPage() {
 
     const seat = room.seats[seatIndex];
     const isHost = userId === room.hostId;
+console.log("Clicked Seatttttttttttttttttttttt:", seatIndex, seat);
 
     // --- HOST LOGIC ---
     if (isHost) {
       // If user clicked the settings icon, mode modal opens (handled elsewhere)
       if (seat.userId !== userId) {
         // Host taking a different seat (seat switching)
-        const res = await hostTakeSeatApi(roomId, seatIndex);
+        const res = await takeSeatApi(roomId, seatIndex);
         setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
       }
       return;
@@ -603,7 +617,7 @@ export default function RoomPage() {
     if (seat.mode === "FREE" && !seat.userId) {
       // Auto join seat
       println(`Auto joining free seat ${seatIndex}`);
-      await requestSeatApi(roomId, seatIndex);
+      await takeSeatApi(roomId, seatIndex);
       return;
     }
 

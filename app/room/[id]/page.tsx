@@ -704,6 +704,18 @@ console.log("Clicked Seatttttttttttttttttttttt:", seatIndex, seat);
             </pre>
           </div>
         </div>
+
+        <div className="space-y-4">
+          <UserList participants={participants} />
+          {isHost && (
+            <HostPanel
+              participants={participants}
+              onBan={handleBan}
+              onMute={() => {}}
+              onKick={() => {}}
+            />
+          )}
+        </div>
       </main>
 
       {isHost && (

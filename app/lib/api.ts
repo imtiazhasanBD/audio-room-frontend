@@ -219,13 +219,49 @@ export async function changeSeatModeApi(roomId: string, seatIndex: number, mode:
   return res.data;
 }
 
+export async function hostMuteSeatApi(
+  roomId: string,
+  seatIndex: number,
+  mute: boolean
+) {
+  const res = await api.post(`/rooms/${roomId}/seat/mute`, { seatIndex, mute });
+  return res.data;
+}
+
+
 export async function leaveSeatApi(roomId: string) {
   // controller: { success: true, data: ... }
   const res = await api.post(`/rooms/${roomId}/seat/leave`);
   return res.data;
 }
-
+export async function kickUserApi(roomId: string, userId: string) {
+  console.log("roooommmiddddd", roomId)
+  return api.post(`/rooms/${roomId}/kick`, { userId });
+}
 // ---- Ban ----
+
+// ---- Kick list / unkick ----
+export async function getKickListApi(roomId: string) {
+  console.log("🔵 HostKickList component mounted");
+
+  const res = await api.get(`/rooms/${roomId}/kick/all`);
+  console.log("ressssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",res)
+  // response: { success: true, kicks }
+  return res.data as Array<{
+    id: string;
+    roomId: string;
+    userId: string;
+    bannedBy: string;
+    expiresAt: string;
+    user?: { id: string; name?: string; email?: string };
+  }>;
+}
+
+export async function unkickApi(roomId: string, userId: string) {
+  const res = await api.delete(`/rooms/${roomId}/unkick/${userId}`);
+  return res.data;
+}
+
 export async function banUserApi(
   roomId: string,
   userId: string,

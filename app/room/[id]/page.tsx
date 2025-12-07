@@ -8,10 +8,13 @@ import {
   approveSeatApi,
   banUserApi,
   changeSeatModeApi,
+  getKickListApi,
   getPublisherTokenApi,
   getRoomDetail,
+  hostMuteSeatApi,
   hostTakeSeatApi,
   joinRoomApi,
+  kickUserApi,
   leaveRoomApi,
   leaveSeatApi,
   Participant,
@@ -26,6 +29,7 @@ import { UserList } from "@/app/components/UserList";
 import { HostPanel } from "@/app/components/HostPanel";
 import SeatApprovalModal from "@/app/components/SeatApprovalModal";
 import SeatModeModal from "@/app/components/SeatModeModal";
+import HostModerationPanel from "@/app/components/HostModerationPanel";
 
 // GLOBAL SINGLETON
 let AgoraRTC: any = null;
@@ -37,6 +41,7 @@ export default function RoomPage() {
 
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [KickList, setKickList] = useState();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [log, setLog] = useState<string[]>([]);
 
@@ -370,37 +375,39 @@ export default function RoomPage() {
       if (!client || !track) return;
 
       // ✅ USER JUST RECEIVED SEAT
- if (hasSeat && !hadSeat) {
-  println("🔍 Verifying seat before publishing…");
+      if (hasSeat && !hadSeat) {
+        println("🔍 Verifying seat before publishing…");
 
-  // Refresh room to ensure DB is synced
-  const fresh = await getRoomDetail(roomId);
-  const confirmSeat = fresh.seats.some((s) => s.userId === userId);
+        // Refresh room to ensure DB is synced
+        const fresh = await getRoomDetail(roomId);
+        const confirmSeat = fresh.seats.some((s) => s.userId === userId);
 
-  if (!confirmSeat) {
-    println("❌ Backend has not assigned seat yet → skipping publish");
-    return;
-  }
+        if (!confirmSeat) {
+          println("❌ Backend has not assigned seat yet → skipping publish");
+          return;
+        }
 
-  println("✅ Seat confirmed → requesting publisher token");
+        println("✅ Seat confirmed → requesting publisher token");
 
-  try {
-    const token = await getPublisherTokenApi(roomId);
-    await client.renewToken(token.token);
+        try {
+          const token = await getPublisherTokenApi(roomId);
+          await client.renewToken(token.token);
 
-    await track.setEnabled(true);
-    await client.publish([track]);
+          await track.setEnabled(true);
+          await client.publish([track]);
 
-    setMicOn(true);
-    micOnRef.current = true;
+          // mute immediately AFTER publish
+          await track.setEnabled(false);
 
-    println("🎤 Publishing mic (publisher role)");
-  } catch (err) {
-    console.error(err);
-    println("❌ Failed to publish mic");
-  }
-}
+          setMicOn(false);
+          micOnRef.current = false;
 
+          println("🎤 Publishing mic (publisher role)");
+        } catch (err) {
+          console.error(err);
+          println("❌ Failed to publish mic");
+        }
+      }
 
       // ✅ USER JUST LOST SEAT
       if (!hasSeat && hadSeat) {
@@ -425,6 +432,105 @@ export default function RoomPage() {
         return [...prev, data.request];
       });
       setShowModal(true);
+    });
+
+    // put near your other socket handlers (use same refs you already have)
+    s.on("user.kicked", async ({ userId: kickedId }) => {
+      if (String(kickedId) !== String(userId)) return refreshRoomData();
+
+      alert("You were kicked by the host.");
+
+      leavingRef.current = true;
+
+      try {
+        localTrackRef.current?.close();
+      } catch {}
+      try {
+        await agoraClientRef.current?.leave();
+      } catch {}
+
+      socketRef.current?.disconnect();
+
+      window.location.href = "/rooms";
+    });
+
+    s.on("user.kicked", ({ userId: kickedId }) => {
+      if (kickedId === userId) {
+        alert("You were kicked. Cannot rejoin for 24 hours.");
+        // handleLeave();
+      }
+    });
+
+    s.on("seat.mute", (data) => {
+      const { seatIndex, mute, userId } = data;
+      if (userId === user?.id && !mute) {
+        println("🔊 Host allowed you to speak — tap mic to unmute");
+      }
+      // Update seat micOn
+      setRoom((prev) => {
+        if (!prev) return prev;
+
+        const seats = prev.seats.map((s) =>
+          s.index === seatIndex ? { ...s, micOn: !mute } : s
+        );
+
+        return { ...prev, seats };
+      });
+
+      s.on("user.kicked", async ({ userId: kickedId }) => {
+        if (kickedId !== userId) {
+          refreshRoomData();
+          return;
+        }
+
+        alert("You were kicked by the host. You cannot rejoin for 24 hours.");
+
+        // ---- FORCE DISCONNECT ----
+        leavingRef.current = true; // stop cleanup loops
+
+        const client = agoraClientRef.current;
+        const track = localTrackRef.current;
+        const sock = socketRef.current;
+
+        try {
+          if (track) {
+            track.stop();
+            track.close();
+          }
+        } catch {}
+
+        try {
+          if (client) {
+            await client.leave();
+          }
+        } catch {}
+
+        try {
+          if (sock) {
+            sock.disconnect();
+          }
+        } catch {}
+
+        // Prevent socket.io reconnect
+        if (sock) {
+          sock.io.opts.reconnection = false;
+        }
+
+        // ---- FORCE PAGE LEAVE ----
+        window.location.href = "/rooms";
+      });
+
+      // Update participant muted flag
+      setParticipants((prev) =>
+        prev.map((p) => (p.userId === userId ? { ...p, muted: mute } : p))
+      );
+
+      // If host muted ME, turn off my microphone
+      if (userId === userId && mute) {
+        localTrackRef.current?.setEnabled(false);
+        setMicOn(false);
+        println("🔇 Host muted you");
+      }
     });
 
     s.on("user.micOn", (payload) => {
@@ -549,12 +655,63 @@ export default function RoomPage() {
 
     const next = !micOnRef.current;
     try {
-      await track.setEnabled(next);
+      await track.setEnabled(next); // only enable/disable
+      micOnRef.current = next;
       setMicOn(next);
       s?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
     } catch (e) {
       console.error("Mic toggle error:", e);
       println("❌ Failed to toggle mic");
+    }
+  }
+
+  async function handleHostMute(targetUserId: string, mute: boolean) {
+    const seat = room?.seats.find((s) => s.userId === targetUserId);
+    if (!seat) return;
+
+    await hostMuteSeatApi(roomId, seat.index, mute);
+  }
+
+  async function handleKick(targetUserId: string) {
+    if (!room) return;
+    const isHost = userId === room.hostId;
+    if (!isHost) {
+      println("❌ Only host can kick users");
+      return;
+    }
+
+    try {
+      println(`🚨 Kicking user ${targetUserId}...`);
+
+      await kickUserApi(roomId, targetUserId);
+
+      // Remove user from participants immediately
+      setParticipants((prev) => prev.filter((p) => p.userId !== targetUserId));
+
+      // Also remove user from seats
+      setRoom((prev) => {
+        if (!prev) return prev;
+
+        const updatedSeats = prev.seats.map((s) => {
+          if (s.userId === targetUserId) {
+            return { ...s, userId: null, micOn: false };
+          }
+          return s;
+        });
+
+        return { ...prev, seats: updatedSeats };
+      });
+
+      // If YOU are the kicked user, force redirect
+      if (targetUserId === userId) {
+        println("❌ You were kicked from this room");
+        router.push("/rooms");
+      }
+
+      println(`✅ User ${targetUserId} kicked`);
+    } catch (err: any) {
+      console.error("Kick error:", err);
+      println("❌ Failed to kick user");
     }
   }
 
@@ -595,7 +752,7 @@ export default function RoomPage() {
 
     const seat = room.seats[seatIndex];
     const isHost = userId === room.hostId;
-console.log("Clicked Seatttttttttttttttttttttt:", seatIndex, seat);
+    console.log("Clicked Seatttttttttttttttttttttt:", seatIndex, seat);
 
     // --- HOST LOGIC ---
     if (isHost) {
@@ -708,11 +865,13 @@ console.log("Clicked Seatttttttttttttttttttttt:", seatIndex, seat);
         <div className="space-y-4">
           <UserList participants={participants} />
           {isHost && (
-            <HostPanel
+            <HostModerationPanel
+              socket={socketRef.current}
+              roomId={roomId}
               participants={participants}
-              onBan={handleBan}
-              onMute={() => {}}
-              onKick={() => {}}
+              refreshRoom={refreshRoomData}
+              onMute={handleHostMute}
+              onKick={handleKick}
             />
           )}
         </div>

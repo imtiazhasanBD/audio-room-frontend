@@ -1,17 +1,21 @@
 "use client";
 
-import { Participant } from "../lib/api";
-
-
+import { kickUserApi, Participant } from "../lib/api";
 
 type HostPanelProps = {
   participants: Participant[];
   onBan: (userId: string) => void;
-  onMute: (userId: string) => void;
+  onMute: (targetUserId: string, mute: boolean) => Promise<void>;
   onKick: (userId: string) => void;
 };
 
-export function HostPanel({ participants, onBan, onMute, onKick }: HostPanelProps) {
+export function HostPanel({
+  participants,
+  onBan,
+  onMute,
+  onKick,
+}: HostPanelProps) {
+  console.log("ppppppppppp",participants)
   return (
     <div className="card">
       <h3 className="text-sm font-semibold mb-2">Host Panel</h3>
@@ -35,17 +39,19 @@ export function HostPanel({ participants, onBan, onMute, onKick }: HostPanelProp
             {!p.isHost && (
               <div className="flex gap-1">
                 <button
-                  className="btn text-xs py-1 px-2"
-                  onClick={() => onMute(p.userId)}
+                  className="btn btn-sm bg-red-500/20 hover:bg-red-500/30"
+                  onClick={() => onMute(p.userId, true)}
                 >
-                  {p.muted ? "Unmute" : "Mute"}
+                  Mute
                 </button>
-                <button
-                  className="btn text-xs py-1 px-2"
-                  onClick={() => onKick(p.userId)}
-                >
-                  Kick
-                </button>
+
+<button
+  onClick={() => onKick(p.userId)}
+  className="btn btn-danger"
+>
+  Kick
+</button>
+
                 <button
                   className="btn btn-danger text-xs py-1 px-2"
                   onClick={() => onBan(p.userId)}

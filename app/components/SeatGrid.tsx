@@ -25,6 +25,7 @@ export function SeatGrid({
 }: Props) {
   const user = getCurrentUser();
   const userId = user?.id;
+  console.log("userrrrrr", participants)
 
   // 🎨 Select icon for each seat mode
   function getModeIcon(mode: string) {
@@ -57,7 +58,7 @@ export function SeatGrid({
             (p) => p.userId === seat.userId
           );
 
-          const isMuted = (!seat.micOn || participant?.muted) && !!seat.userId;
+          const isMuted = participant ? participant.muted : false;
 
           const rtcUid = participant?.rtcUid?.toString();
           const volume = rtcUid ? speakers[rtcUid] ?? 0 : 0;
@@ -142,7 +143,7 @@ export function SeatGrid({
                   }}
                 >
                   <span className="text-lg font-bold text-slate-200">
-                    {seat.index + 1}
+                    {seat.index}
                   </span>
                 </motion.div>
 

@@ -323,7 +323,7 @@ export default function RoomPage() {
 
     // seat.update: authoritative seat layout
     s.on("seat.update", async (data: { seats: Seat[] }) => {
-        setRoom(prev => prev ? { ...prev, seats: data.seats } : prev);
+      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
 
       const myNewSeat = data.seats.find((s) => s.userId === userId);
       const hasSeat = !!myNewSeat && myNewSeat.mode !== "LOCKED";
@@ -547,6 +547,7 @@ export default function RoomPage() {
       if (mute) await muteSeatApi(roomId, seatIndex);
       else await unmuteSeatApi(roomId, seatIndex);
       // server will emit seat.update / seat.mute so UI will refresh
+      setModeModalOpen(false);
     } catch (e) {
       console.error("mute seat error", e);
       println("❌ Failed to change seat mute");

@@ -4,7 +4,7 @@ import axios, { AxiosError } from "axios";
 import { getToken } from "./auth";
 
 // ---- Base API ----
-const API_BASE =
+export const API_BASE =
   process.env.NEXT_PUBLIC_API ?? "http://localhost:8000";
 
 console.log("API BASE =>", API_BASE);
@@ -203,7 +203,7 @@ export async function createRoomApi(form: {
 
 
 export async function getRoomDetail(roomId: string): Promise<RoomDetail> {
-  const res = await api.get(`/audio-room/${roomId}`);
+  const res = await api.get(`/audio-room/${roomId}/details`);
   const room = res.data.room;
 
   return room

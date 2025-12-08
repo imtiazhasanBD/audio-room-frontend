@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import { Mic, MicOff, Lock, User, CheckCircle, Hourglass, Crown } from "lucide-react";
-import { Seat, Participant } from "../lib/api";
+import { Seat, Participant, API_BASE } from "../lib/api";
 import { getCurrentUser } from "../lib/auth";
 
 type Props = {
@@ -138,7 +138,7 @@ export function SeatGrid({
                     </span>
                   ) : avatarUrl ? (
                     <img
-                      src={`http://localhost:8000${avatarUrl}`}
+                      src={`${API_BASE}${avatarUrl}`}
                       className="w-full h-full object-cover"
                     />
                   ) : (

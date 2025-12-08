@@ -67,27 +67,66 @@ export type Seat = {
   index: number;
   userId: string | null;
   micOn: boolean;
-  locked: boolean;
-  mode: string
+  mode: string;
+  user?: {
+    id: string;
+    nickName?: string;
+    profilePicture?: string;
+  } | null;
 };
+
 
 export type Participant = {
   id: string;
-  roomId: string;
   userId: string;
-  rtcUid: string,
+  rtcUid: string;
   isHost: boolean;
   muted: boolean;
+  user: {
+    id: string;
+    nickName: string;
+    profilePicture: string | null;
+    email?: string;
+  };
 };
 
 export type RoomDetail = {
   id: string;
   name: string;
   hostId: string;
-  isLive: boolean;
+  imageUrl?: string;
+  seatCount: number;
+  tags: string[];
+  host: {
+    id: string;
+    nickName: string;
+    profilePicture: string | null;
+    email: string;
+  };
   seats: Seat[];
   participants: Participant[];
+  participantCount: number;
 };
+
+
+export type RoomListItem = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  seatCount: number;
+  tags: string[];
+    hostId: string;
+  //isLive: boolean;
+  seats: Seat[];
+  host: {
+    id: string;
+    nickName: string;
+    profilePicture: string | null;
+    email: string;
+  };
+  participantCount: number;
+};
+
 
 export type Ban = {
   id: string;
@@ -124,29 +163,55 @@ export async function loginApi(data: { email: string; password: string }) {
 }
 
 // ---- Rooms ----
-export async function fetchRooms(): Promise<Room[]> {
-  const res = await api.get("/rooms");
-  // controller: { success: true, rooms }
-  return res.data.rooms as Room[];
+export async function fetchRooms(): Promise<RoomListItem[]> {
+  const res = await api.get("/audio-room/all");
+
+  return res.data.rooms.map((room: any) => ({
+    id: room.id,
+    name: room.name,
+    imageUrl: room.imageUrl,
+    seatCount: room.seatCount,
+    tags: room.tags,
+    host: room.host,
+    participantCount: room._count.participants
+  }));
 }
 
-export async function createRoomApi(
-  name: string,
-  provider?: string
-): Promise<Room> {
-  // controller: { success: true, room }
-  const res = await api.post("/rooms", { name, provider });
-  return res.data.room as Room;
+
+export async function createRoomApi(form: {
+  name: string;
+  seatCount: number;
+  tags: string[];
+  image?: File | null;
+}) {
+  const fd = new FormData();
+  fd.append("name", form.name);
+  fd.append("seatCount", String(form.seatCount));
+
+  form.tags.forEach((t) => fd.append("tags", t));
+
+  if (form.image) {
+    fd.append("image", form.image);
+  }
+
+  const res = await api.post("/audio-room", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
+  return res.data.room;
 }
+
 
 export async function getRoomDetail(roomId: string): Promise<RoomDetail> {
-  const res = await api.get(`/rooms/${roomId}`);
-  return res.data.room ?? res.data.data?.room;
+  const res = await api.get(`/audio-room/${roomId}`);
+  const room = res.data.room;
+
+  return room
 }
 
 
 export async function getPublisherTokenApi(roomId: string) {
-  const res = await api.post(`/rooms/${roomId}/rtc/publisher`);
+  const res = await api.post(`/audio-room/${roomId}/rtc/publisher`);
   // backend returns: { token: { provider, token, expiresAt, uid } }
   return res.data.token as {
     provider: string;
@@ -161,23 +226,23 @@ export async function joinRoomApi(
   roomId: string
 ): Promise<JoinRoomResult> {
   // controller: { success: true, data: { room, token } }
-  const res = await api.post(`/rooms/${roomId}/join`);
+  const res = await api.post(`/audio-room/${roomId}/join`);
   return res.data.data as JoinRoomResult;
 }
 
 export async function leaveRoomApi(roomId: string) {
   // controller: { success: true, data: ... }
-  await api.post(`/rooms/${roomId}/leave`);
+  await api.post(`/audio-room/${roomId}/leave`);
 }
 
 
 export async function hostTakeSeatApi(roomId: string, seatIndex: number) {
-  const res = await api.post(`/rooms/${roomId}/seat/host`, { seatIndex });
+  const res = await api.post(`/audio-room/${roomId}/seat/host`, { seatIndex });
   return res.data as { ok: boolean; seats: any[] };
 }
 
 export async function takeSeatApi(roomId: string, seatIndex: number) {
-  const res = await api.post(`/rooms/${roomId}/seat/take`, { seatIndex });
+  const res = await api.post(`/audio-room/${roomId}/seat/take`, { seatIndex });
   return res.data;
 }
 
@@ -190,7 +255,7 @@ export async function requestSeatApi(
 
   
   // controller: { success: true, request }
-  const res = await api.post(`/rooms/${roomId}/seat/request`, {
+  const res = await api.post(`/audio-room/${roomId}/seat/request`, {
     seatIndex,
   });
   return res.data.request;
@@ -201,7 +266,7 @@ export async function approveSeatApi(
   requestId: string,
   accept: boolean
 ) {
-  const res = await api.post(`/rooms/${roomId}/seat/approve`, {
+  const res = await api.post(`/audio-room/${roomId}/seat/approve`, {
     requestId,
     accept,
   });
@@ -215,7 +280,7 @@ export async function approveSeatApi(
 
 
 export async function changeSeatModeApi(roomId: string, seatIndex: number, mode: string) {
-  const res = await api.post(`/rooms/${roomId}/seat/mode`, { seatIndex, mode });
+  const res = await api.post(`/audio-room/${roomId}/seat/mode`, { seatIndex, mode });
   return res.data;
 }
 
@@ -224,31 +289,31 @@ export async function hostMuteSeatApi(
   seatIndex: number,
   mute: boolean
 ) {
-  const res = await api.post(`/rooms/${roomId}/seat/mute`, { seatIndex, mute });
+  const res = await api.post(`/audio-room/${roomId}/seat/mute`, { seatIndex, mute });
   return res.data;
 }
 
 
 
 export async function muteSeatApi(roomId: string, seatIndex: number) {
-  const res = await api.post(`/rooms/${roomId}/seat/${seatIndex}/mute`);
+  const res = await api.post(`/audio-room/${roomId}/seat/${seatIndex}/mute`);
   return res.data;
 }
 
 export async function unmuteSeatApi(roomId: string, seatIndex: number) {
-  const res = await api.post(`/rooms/${roomId}/seat/${seatIndex}/unmute`);
+  const res = await api.post(`/audio-room/${roomId}/seat/${seatIndex}/unmute`);
   return res.data;
 }
 
 
 export async function leaveSeatApi(roomId: string) {
   // controller: { success: true, data: ... }
-  const res = await api.post(`/rooms/${roomId}/seat/leave`);
+  const res = await api.post(`/audio-room/${roomId}/seat/leave`);
   return res.data;
 }
 export async function kickUserApi(roomId: string, userId: string) {
   console.log("roooommmiddddd", roomId)
-  return api.post(`/rooms/${roomId}/kick`, { userId });
+  return api.post(`/audio-room/${roomId}/kick`, { userId });
 }
 // ---- Ban ----
 
@@ -256,7 +321,7 @@ export async function kickUserApi(roomId: string, userId: string) {
 export async function getKickListApi(roomId: string) {
   console.log("🔵 HostKickList component mounted");
 
-  const res = await api.get(`/rooms/${roomId}/kick/all`);
+  const res = await api.get(`/audio-room/${roomId}/kick/all`);
   console.log("ressssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",res)
   // response: { success: true, kicks }
   return res.data as Array<{
@@ -270,7 +335,7 @@ export async function getKickListApi(roomId: string) {
 }
 
 export async function unkickApi(roomId: string, userId: string) {
-  const res = await api.delete(`/rooms/${roomId}/unkick/${userId}`);
+  const res = await api.delete(`/audio-room/${roomId}/unkick/${userId}`);
   return res.data;
 }
 
@@ -280,7 +345,7 @@ export async function banUserApi(
   reason?: string
 ) {
   // controller: { success: true, data: Ban }
-  const res = await api.post(`/rooms/${roomId}/ban`, {
+  const res = await api.post(`/audio-room/${roomId}/ban`, {
     userId,
     reason,
   });
@@ -289,5 +354,5 @@ export async function banUserApi(
 
 export async function unbanUserApi(roomId: string, userId: string) {
   // controller: { success: true, data: ... }
-  await api.delete(`/rooms/${roomId}/ban/${userId}`);
+  await api.delete(`/audio-room/${roomId}/ban/${userId}`);
 }

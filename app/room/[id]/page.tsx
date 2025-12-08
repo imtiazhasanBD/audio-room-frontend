@@ -17,11 +17,13 @@ import {
   kickUserApi,
   leaveRoomApi,
   leaveSeatApi,
+  muteSeatApi,
   Participant,
   requestSeatApi,
   RoomDetail,
   Seat,
   takeSeatApi,
+  unmuteSeatApi,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -66,9 +68,15 @@ export default function RoomPage() {
   const userId = user?.id;
 
   // Derived state
-  const mySeat = room?.seats?.find((s) => s.userId === userId) || null;
-  const canSpeak =
-    !!mySeat && mySeat.userId === userId && mySeat.mode !== "LOCKED";
+const mySeat = room?.seats?.find((s) => s.userId === userId) || null;
+const myParticipant = participants.find((p) => p.userId === userId) || null;
+
+// User is allowed to speak only if:
+// 1) user is on a seat (mySeat)
+// 2) seat allows audio (mySeat.micOn === true)
+// 3) participant didn't self-mute (myParticipant?.muted === false)
+const canSpeak = !!mySeat && mySeat.micOn === true ;
+
 
   const [speakers, setSpeakers] = useState<Record<string, number>>({});
 
@@ -361,70 +369,57 @@ export default function RoomPage() {
       refreshRoomData();
     });
 
-    s.on("seat.update", async (data) => {
-      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
+s.on("seat.mute", (payload) => {
+  const { seatIndex, mute, userId: targetUserId } = payload;
 
-      const myNewSeat = data.seats.find((s: Seat) => s.userId === userId);
-      const hasSeat = !!myNewSeat && myNewSeat.mode !== "LOCKED";
+  // Update seats
+  setRoom((prev) => {
+    if (!prev) return prev;
+    const seats = prev.seats.map((s) =>
+      s.index === seatIndex ? { ...s, micOn: !mute } : s
+    );
+    return { ...prev, seats };
+  });
 
-      const hadSeat = hadSeatRef.current;
+  // Update participants
+  setParticipants((prev) =>
+    prev.map((p) =>
+      p.userId === targetUserId ? { ...p, muted: mute } : p
+    )
+  );
 
-      const client = agoraClientRef.current;
-      const track = localTrackRef.current;
+  // If this affects ME
+  if (String(targetUserId) === String(user?.id)) {
+    const client = agoraClientRef.current;
+    const track = localTrackRef.current;
 
-      if (!client || !track) return;
-
-      // ✅ USER JUST RECEIVED SEAT
-      if (hasSeat && !hadSeat) {
-        println("🔍 Verifying seat before publishing…");
-
-        // Refresh room to ensure DB is synced
-        const fresh = await getRoomDetail(roomId);
-        const confirmSeat = fresh.seats.some((s) => s.userId === userId);
-
-        if (!confirmSeat) {
-          println("❌ Backend has not assigned seat yet → skipping publish");
-          return;
+    if (mute) {
+      (async () => {
+        // ⭐ FIXED — only unpublish when track is valid
+        if (client && track) {
+          try {
+            await client.unpublish([track]);
+          } catch {}
         }
 
-        println("✅ Seat confirmed → requesting publisher token");
-
-        try {
-          const token = await getPublisherTokenApi(roomId);
-          await client.renewToken(token.token);
-
-          await track.setEnabled(true);
-          await client.publish([track]);
-
-          // mute immediately AFTER publish
-          await track.setEnabled(false);
-
-          setMicOn(false);
-          micOnRef.current = false;
-
-          println("🎤 Publishing mic (publisher role)");
-        } catch (err) {
-          console.error(err);
-          println("❌ Failed to publish mic");
+        // ⭐ FIXED — only disable when track exists
+        if (track) {
+          try {
+            await track.setEnabled(false);
+          } catch {}
         }
-      }
 
-      // ✅ USER JUST LOST SEAT
-      if (!hasSeat && hadSeat) {
-        try {
-          println("🛑 Seat removed → unpublishing mic");
+        micOnRef.current = false;
+        setMicOn(false);
+        println("🔇 Host muted you");
+      })();
+    } else {
+      println("🔊 Host allowed you to speak — tap mic to unmute");
+    }
+  }
+});
 
-          await client.unpublish([track]);
-          await track.setEnabled(false);
 
-          micOnRef.current = false;
-          setMicOn(false);
-        } catch {}
-      }
-
-      // ✅ REMEMBER CURRENT SEAT STATE
-      hadSeatRef.current = hasSeat;
-    });
 
     s.on("seat.request", (data) => {
       setSeatRequests((prev) => {
@@ -630,6 +625,14 @@ export default function RoomPage() {
     setSelectedSeatIndex(seatIndex);
     setModeModalOpen(true);
   }
+async function onMuteSeat(seatIndex: number, mute: boolean) {
+  if (mute) {
+    await muteSeatApi(roomId, seatIndex);
+  } else {
+    await unmuteSeatApi(roomId, seatIndex);
+  }
+}
+
 
   async function applySeatMode(mode: string) {
     if (selectedSeatIndex == null) return;
@@ -640,30 +643,52 @@ export default function RoomPage() {
     setSelectedSeatIndex(null);
   }
 
-  async function toggleMic() {
-    const track = localTrackRef.current;
-    const s = socketRef.current;
+async function toggleMic() {
+  const track = localTrackRef.current;
+  const client = agoraClientRef.current;
+  const s = socketRef.current;
 
-    if (!track) return;
+  if (!track || !client) return;
 
-    if (!canSpeak) {
-      println("❌ You must take a seat to speak");
+  // Seat-level guard
+  if (!mySeat || mySeat.micOn === false) {
+    println("❌ Seat is muted by host. You cannot unmute.");
+    try { await track.setEnabled(false); } catch {}
+    setMicOn(false);
+    return;
+  }
+
+  const next = !micOnRef.current;
+
+  try {
+    if (next) {
+      // enable track locally first (so browser unlocks)
+      await track.setEnabled(true);
+      // publish to Agora so others hear you
+      await client.publish([track]);
+      setMicOn(true);
+      micOnRef.current = true;
+      s?.emit("user.micOn", { roomId, userId });
+      println("🎤 Mic enabled and published");
+    } else {
+      // unpublish then disable locally
+      try {
+        await client.unpublish([track]);
+      } catch (e) {
+        // ignore unpublish errors (might not be published)
+      }
       await track.setEnabled(false);
       setMicOn(false);
-      return;
+      micOnRef.current = false;
+      s?.emit("user.micOff", { roomId, userId });
+      println("🔇 Mic disabled and unpublished");
     }
-
-    const next = !micOnRef.current;
-    try {
-      await track.setEnabled(next); // only enable/disable
-      micOnRef.current = next;
-      setMicOn(next);
-      s?.emit(next ? "user.micOn" : "user.micOff", { roomId, userId });
-    } catch (e) {
-      console.error("Mic toggle error:", e);
-      println("❌ Failed to toggle mic");
-    }
+  } catch (e) {
+    console.error("Mic toggle error", e);
+    println("❌ Mic toggle failed: " + (e as any)?.message || "unknown");
   }
+}
+
 
   async function handleHostMute(targetUserId: string, mute: boolean) {
     const seat = room?.seats.find((s) => s.userId === targetUserId);
@@ -824,15 +849,14 @@ export default function RoomPage() {
           <p className="text-xs text-slate-400">Host: {room.hostId}</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={toggleMic}
-            disabled={!canSpeak}
-            className={`btn ${micOn ? "btn-primary" : ""} ${
-              !canSpeak ? "opacity-50 cursor-not-allowed" : ""
-            }`}
-          >
-            {canSpeak ? (micOn ? "Mic ON" : "Mic OFF") : "Seat required"}
-          </button>
+        <button
+  onClick={toggleMic}
+  disabled={!canSpeak}
+  className={`btn ${micOn ? 'btn-primary' : ''} ${!canSpeak ? 'opacity-50 cursor-not-allowed' : ''}`}
+>
+  {mySeat?.micOn === false ? 'Muted by Host' : (micOn ? 'Mic ON' : 'Mic OFF')}
+</button>
+
 
           <button className="btn btn-danger" onClick={handleLeave}>
             Leave
@@ -883,6 +907,7 @@ export default function RoomPage() {
           seatIndex={selectedSeatIndex}
           onClose={() => setModeModalOpen(false)}
           onChangeMode={applySeatMode}
+          onMuteSeat={onMuteSeat}
         />
       )}
 

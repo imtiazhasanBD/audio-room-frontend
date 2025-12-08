@@ -25,7 +25,7 @@ export function SeatGrid({
 }: Props) {
   const user = getCurrentUser();
   const userId = user?.id;
-  console.log("userrrrrr", participants)
+  console.log("userrrrrr", seats)
 
   // 🎨 Select icon for each seat mode
   function getModeIcon(mode: string) {
@@ -146,7 +146,12 @@ export function SeatGrid({
                     {seat.index}
                   </span>
                 </motion.div>
-
+  {/* 🔇 ALWAYS SHOW IF SEAT IS MUTED (even empty) */}
+  {seat.micOn === false && (
+    <div className="absolute -bottom-1 -right-1 bg-red-600 w-5 h-5 rounded-full flex items-center justify-center border border-slate-900 z-20">
+      <MicOff size={10} className="text-white" />
+    </div>
+  )}
                 {/* MIC BADGE */}
                 {!isEmpty && (
                   <div

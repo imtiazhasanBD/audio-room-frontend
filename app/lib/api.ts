@@ -229,6 +229,18 @@ export async function hostMuteSeatApi(
 }
 
 
+
+export async function muteSeatApi(roomId: string, seatIndex: number) {
+  const res = await api.post(`/rooms/${roomId}/seat/${seatIndex}/mute`);
+  return res.data;
+}
+
+export async function unmuteSeatApi(roomId: string, seatIndex: number) {
+  const res = await api.post(`/rooms/${roomId}/seat/${seatIndex}/unmute`);
+  return res.data;
+}
+
+
 export async function leaveSeatApi(roomId: string) {
   // controller: { success: true, data: ... }
   const res = await api.post(`/rooms/${roomId}/seat/leave`);

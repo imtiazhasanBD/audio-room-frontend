@@ -7,6 +7,7 @@ interface SeatModeModalProps {
   seatIndex: number | null;
   onClose: () => void;
   onChangeMode: (mode: SeatMode) => void;
+  onMuteSeat: (seatIndex: number, mute: boolean) => void;
 }
 
 export default function SeatModeModal({
@@ -14,14 +15,21 @@ export default function SeatModeModal({
   seatIndex,
   onClose,
   onChangeMode,
+  onMuteSeat,
 }: SeatModeModalProps) {
-  if (!open) return null;
+  if (!open || seatIndex === null) return null;
+
+  // Seat number for display (1-based)
+  const seatNumber = seatIndex + 1;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-slate-800 p-4 rounded-xl w-64">
-        <h2 className="font-bold mb-3">Seat {seatIndex ?? +1} Mode</h2>
+        <h2 className="font-bold mb-3 text-center">
+          Seat {seatNumber} Controls
+        </h2>
 
+        {/* ===== Seat Mode Controls ===== */}
         <button
           className="w-full py-2 bg-emerald-600 rounded mb-2"
           onClick={() => onChangeMode("FREE")}
@@ -41,6 +49,21 @@ export default function SeatModeModal({
           onClick={() => onChangeMode("LOCKED")}
         >
           LOCKED (Disabled)
+        </button>
+
+        {/* ===== Seat Mute / Unmute ===== */}
+        <button
+          className="w-full py-2 bg-orange-600 rounded mb-2"
+          onClick={() => onMuteSeat(seatIndex, true)}
+        >
+          🔇 Mute Seat
+        </button>
+
+        <button
+          className="w-full py-2 bg-green-600 rounded mb-2"
+          onClick={() => onMuteSeat(seatIndex, false)}
+        >
+          🔊 Unmute Seat
         </button>
 
         <button

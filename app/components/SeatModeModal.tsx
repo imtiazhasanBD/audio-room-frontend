@@ -7,6 +7,7 @@ interface SeatModeModalProps {
   seatIndex: number | null;
   onClose: () => void;
   onChangeMode: (mode: SeatMode) => void;
+  OnBulkSeatMode: (mode: SeatMode) => void;
   onMuteSeat: (seatIndex: number, mute: boolean) => void;
 }
 
@@ -15,6 +16,7 @@ export default function SeatModeModal({
   seatIndex,
   onClose,
   onChangeMode,
+  OnBulkSeatMode,
   onMuteSeat,
 }: SeatModeModalProps) {
   if (!open || seatIndex === null) return null;
@@ -64,6 +66,13 @@ export default function SeatModeModal({
           onClick={() => onMuteSeat(seatIndex, false)}
         >
           🔊 Unmute Seat
+        </button>
+
+        <button
+          className="btn btn-secondary w-full"
+          onClick={() => OnBulkSeatMode("REQUEST")}
+        >
+          Make All Free Seats → Request-Only
         </button>
 
         <button

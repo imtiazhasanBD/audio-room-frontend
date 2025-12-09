@@ -284,12 +284,19 @@ export async function changeSeatModeApi(roomId: string, seatIndex: number, mode:
   return res.data;
 }
 
+export async function bulkSeatModeApi(roomId: string, mode: string) {
+  const res = await api.patch(`/audio-room/${roomId}/seat/mode/toggle`, { mode });
+  return res.data;
+}
+
+
 export async function updateSeatCountApi(roomId: string, seatCount: number) {
   const res = await api.patch(`/audio-room/${roomId}/seat-count`, {
     seatCount,
   });
   return res.data;
 }
+
 
 
 export async function hostMuteSeatApi(

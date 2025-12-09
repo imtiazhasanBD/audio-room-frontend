@@ -25,6 +25,7 @@ import {
   unmuteSeatApi,
   RoomListItem,
   updateSeatCountApi,
+  bulkSeatModeApi,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -584,6 +585,13 @@ export default function RoomPage() {
     setSelectedSeatIndex(null);
   }
 
+  async function applyBulkSeatMode(mode: string) {
+    if (selectedSeatIndex == null) return;
+    await bulkSeatModeApi(roomId, mode as any);
+    setModeModalOpen(false);
+    setSelectedSeatIndex(null);
+  }
+
   async function toggleMic() {
     const track = localTrackRef.current;
     const client = agoraClientRef.current;
@@ -757,7 +765,7 @@ export default function RoomPage() {
   }
 
   async function updateSeatCount(count: number) {
-    console.log(count)
+    console.log(count);
     try {
       const result = await updateSeatCountApi(roomId, count);
 
@@ -830,24 +838,53 @@ export default function RoomPage() {
       <main className="grid md:grid-cols-3 gap-4 p-4">
         <div className="md:col-span-2">
           <div className="card">
-            <div className="flex justify-between">
-              <h2 className="font-semibold mb-2">Seats</h2>
-              <div className="relative">
-                <select
-                  onChange={(e) => updateSeatCount(Number(e.target.value))}
-                  className="bg-slate-900 border border-slate-700 text-white px-3 py-2 rounded-md cursor-pointer text-xs"
-                >
-                  <option value="" disabled selected>
-                    Change Seat Count
-                  </option>
+<div className="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
+  <div className="flex items-center gap-2">
+    {/* Optional: Add a small icon here if you have one */}
+    <h2 className="text-lg font-bold text-slate-100 tracking-wide">Seats</h2>
+    <span className="px-2 py-0.5 rounded-full bg-slate-800 text-xs text-slate-400 border border-slate-700">
+      Settings
+    </span>
+  </div>
 
-                  <option value="8">8 Seats</option>
-                  <option value="12">12 Seats</option>
-                  <option value="16">16 Seats</option>
-                  <option value="20">20 Seats</option>
-                </select>
-              </div>
-            </div>
+  <div className="flex items-center gap-3">
+    {/* Mode Selector */}
+    <div className="relative">
+      <select
+        onChange={(e) => bulkSeatModeApi(roomId, e.target.value)}
+        className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none  transition-colors cursor-pointer"
+        defaultValue=""
+      >
+        <option value="" disabled>Mode</option>
+        <option value="FREE">Free Mode</option>
+        <option value="REQUEST">Request Mode</option>
+      </select>
+      {/* Custom Chevron for aesthetics */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+      </div>
+    </div>
+
+    {/* Seat Count Selector */}
+    <div className="relative">
+      <select
+        onChange={(e) => updateSeatCount(Number(e.target.value))}
+        className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none transition-colors cursor-pointer"
+        defaultValue=""
+      >
+        <option value="" disabled>Capacity</option>
+        <option value="8">8 Seats</option>
+        <option value="12">12 Seats</option>
+        <option value="16">16 Seats</option>
+        <option value="20">20 Seats</option>
+      </select>
+       {/* White Chevron for the colored button */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-indigo-200">
+        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
             <SeatGrid
               seats={room.seats}
               hostId={room.host.id}
@@ -888,6 +925,7 @@ export default function RoomPage() {
           onClose={() => setModeModalOpen(false)}
           onChangeMode={applySeatMode}
           onMuteSeat={(idx, mute) => onMuteSeat(idx, mute)}
+          OnBulkSeatMode={applyBulkSeatMode}
         />
       )}
 

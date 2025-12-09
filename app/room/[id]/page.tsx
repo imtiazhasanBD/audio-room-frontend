@@ -24,6 +24,7 @@ import {
   takeSeatApi,
   unmuteSeatApi,
   RoomListItem,
+  updateSeatCountApi,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -70,8 +71,7 @@ export default function RoomPage() {
   const myParticipant = participants.find((p) => p.userId === userId) ?? null;
 
   // canSpeak: seat exists + seat allows mic + participant not self-muted
-  const canSpeak =
-    !!mySeat && mySeat.micOn === true
+  const canSpeak = !!mySeat && mySeat.micOn === true;
 
   const [speakers, setSpeakers] = useState<Record<string, number>>({});
 
@@ -85,7 +85,10 @@ export default function RoomPage() {
   const hadSeatRef = useRef(false);
 
   function println(msg: string) {
-    setLog((prev) => [...prev.slice(-200), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    setLog((prev) => [
+      ...prev.slice(-200),
+      `[${new Date().toLocaleTimeString()}] ${msg}`,
+    ]);
   }
 
   // Keep refs in sync with state
@@ -119,7 +122,7 @@ export default function RoomPage() {
     try {
       const roomData = await getRoomDetail(roomId);
       setRoom(roomData);
-      console.log("roomdatattttttttttt", roomData)
+      console.log("roomdatattttttttttt", roomData);
       setParticipants(roomData.participants ?? []);
       setRoomLoaded(true);
     } catch (e) {
@@ -185,7 +188,8 @@ export default function RoomPage() {
         });
 
         // create microphone track (start muted)
-        const track: ILocalAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        const track: ILocalAudioTrack =
+          await AgoraRTC.createMicrophoneAudioTrack();
         await track.setEnabled(false); // start muted
 
         setAgoraClient(client);
@@ -313,7 +317,9 @@ export default function RoomPage() {
         setRoom((prev) => {
           if (!prev) return prev;
           const seats = prev.seats.map((seat) =>
-            seat.userId === data.userId ? { ...seat, userId: null, user: null } : seat
+            seat.userId === data.userId
+              ? { ...seat, userId: null, user: null }
+              : seat
           );
           return { ...prev, seats };
         });
@@ -364,7 +370,9 @@ export default function RoomPage() {
             await track.setEnabled(false); // keep muted initially
             await client.publish([track]);
             // remain muted until user toggles mic
-            println("🎤 Published as publisher (muted). Use mic button to unmute.");
+            println(
+              "🎤 Published as publisher (muted). Use mic button to unmute."
+            );
           } catch (err) {
             console.error("Publish error after seat assign:", err);
             println("❌ Failed to publish after being assigned seat");
@@ -392,52 +400,63 @@ export default function RoomPage() {
     });
 
     // seat mute (host action) — includes seatIndex, mute(bool), userId (affected user)
-    s.on("seat.mute", (payload: { seatIndex: number; mute: boolean; userId?: string }) => {
-      const { seatIndex, mute, userId: affected } = payload;
+    s.on(
+      "seat.mute",
+      (payload: { seatIndex: number; mute: boolean; userId?: string }) => {
+        const { seatIndex, mute, userId: affected } = payload;
 
-      // update seats locally fast
-      setRoom((prev) => {
-        if (!prev) return prev;
-        const seats = prev.seats.map((s) => (s.index === seatIndex ? { ...s, micOn: !mute } : s));
-        return { ...prev, seats };
-      });
+        // update seats locally fast
+        setRoom((prev) => {
+          if (!prev) return prev;
+          const seats = prev.seats.map((s) =>
+            s.index === seatIndex ? { ...s, micOn: !mute } : s
+          );
+          return { ...prev, seats };
+        });
 
-      // update participant muted flag if participant present
-      if (affected) {
-        setParticipants((prev) => prev.map((p) => (p.userId === affected ? { ...p, muted: mute } : p)));
-      }
+        // update participant muted flag if participant present
+        if (affected) {
+          setParticipants((prev) =>
+            prev.map((p) => (p.userId === affected ? { ...p, muted: mute } : p))
+          );
+        }
 
-      // if current user affected, enforce client-side behavior
-      if (String(affected) === String(userId)) {
-        const client = agoraClientRef.current;
-        const track = localTrackRef.current;
+        // if current user affected, enforce client-side behavior
+        if (String(affected) === String(userId)) {
+          const client = agoraClientRef.current;
+          const track = localTrackRef.current;
 
-        if (mute) {
-          (async () => {
-            if (client && track) {
-              try {
-                await client.unpublish([track]);
-              } catch {}
-            }
-            if (track) {
-              try {
-                await track.setEnabled(false);
-              } catch {}
-            }
+          if (mute) {
+            (async () => {
+              if (client && track) {
+                try {
+                  await client.unpublish([track]);
+                } catch {}
+              }
+              if (track) {
+                try {
+                  await track.setEnabled(false);
+                } catch {}
+              }
 
-            micOnRef.current = false;
-            setMicOn(false);
-            println("🔇 You were muted by host (seat muted)");
-          })();
-        } else {
-          // host unmuted the seat — user must explicitly toggle mic
-          println("🔊 Host unmuted the seat — you may now unmute manually");
+              micOnRef.current = false;
+              setMicOn(false);
+              println("🔇 You were muted by host (seat muted)");
+            })();
+          } else {
+            // host unmuted the seat — user must explicitly toggle mic
+            println("🔊 Host unmuted the seat — you may now unmute manually");
+          }
         }
       }
-    });
+    );
 
     s.on("seat.request", (data: any) => {
-      setSeatRequests((prev) => (prev.some((r) => r.id === data.request.id) ? prev : [...prev, data.request]));
+      setSeatRequests((prev) =>
+        prev.some((r) => r.id === data.request.id)
+          ? prev
+          : [...prev, data.request]
+      );
       setShowModal(true);
     });
 
@@ -467,11 +486,15 @@ export default function RoomPage() {
     });
 
     s.on("user.micOn", (p: { userId: string }) => {
-      setParticipants((prev) => prev.map((x) => (x.userId === p.userId ? { ...x, muted: false } : x)));
+      setParticipants((prev) =>
+        prev.map((x) => (x.userId === p.userId ? { ...x, muted: false } : x))
+      );
     });
 
     s.on("user.micOff", (p: { userId: string }) => {
-      setParticipants((prev) => prev.map((x) => (x.userId === p.userId ? { ...x, muted: true } : x)));
+      setParticipants((prev) =>
+        prev.map((x) => (x.userId === p.userId ? { ...x, muted: true } : x))
+      );
     });
 
     s.onAny((event, data) => {
@@ -570,7 +593,9 @@ export default function RoomPage() {
     // Seat-level guard: if seat is muted by host, do not allow unmuting
     if (!mySeat || mySeat.micOn === false) {
       println("❌ Seat is muted by host. You cannot unmute.");
-      try { await track.setEnabled(false); } catch {}
+      try {
+        await track.setEnabled(false);
+      } catch {}
       setMicOn(false);
       micOnRef.current = false;
       return;
@@ -640,7 +665,9 @@ export default function RoomPage() {
       setParticipants((prev) => prev.filter((p) => p.userId !== targetUserId));
       setRoom((prev) => {
         if (!prev) return prev;
-        const seats = prev.seats.map((s) => (s.userId === targetUserId ? { ...s, userId: null, user: null } : s));
+        const seats = prev.seats.map((s) =>
+          s.userId === targetUserId ? { ...s, userId: null, user: null } : s
+        );
         return { ...prev, seats };
       });
 
@@ -691,7 +718,8 @@ export default function RoomPage() {
         // host taking seat
         const res = await takeSeatApi(roomId, seatIndex);
         // res maybe { seats, token }
-        if (res.seats) setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+        if (res.seats)
+          setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
         // if token present -> renew token quickly
         if (res.token && agoraClientRef.current) {
           try {
@@ -710,7 +738,8 @@ export default function RoomPage() {
     if (seat.mode === "FREE" && !seat.userId) {
       println(`Auto joining free seat ${seatIndex}`);
       const res = await takeSeatApi(roomId, seatIndex);
-      if (res.seats) setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+      if (res.seats)
+        setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
       if (res.token && agoraClientRef.current) {
         try {
           await agoraClientRef.current.renewToken(res.token.token);
@@ -727,9 +756,24 @@ export default function RoomPage() {
     }
   }
 
+  async function updateSeatCount(count: number) {
+    console.log(count)
+    try {
+      const result = await updateSeatCountApi(roomId, count);
+
+      // Update local UI immediately
+      setRoom((prev) => (prev ? { ...prev, seats: result.seats } : prev));
+
+      println(`Seat count updated to ${count}`);
+    } catch (err: any) {
+      println("❌ Failed to change seat count");
+    }
+  }
+
   async function approveSeat(id: string) {
     const res = await approveSeatApi(roomId, id, true);
-    if (res.seats) setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
+    if (res.seats)
+      setRoom((prev) => (prev ? { ...prev, seats: res.seats } : prev));
     setSeatRequests((r) => r.filter((x) => x.id !== id));
   }
 
@@ -744,7 +788,11 @@ export default function RoomPage() {
   }
 
   if (!roomLoaded || loadingRtc || !room) {
-    return <div className="h-screen flex items-center justify-center">Joining...</div>;
+    return (
+      <div className="h-screen flex items-center justify-center">
+        Joining...
+      </div>
+    );
   }
 
   const isHost = String(userId) === String(room.host?.id);
@@ -754,15 +802,23 @@ export default function RoomPage() {
       <header className="flex justify-between items-center px-4 py-3 border-b border-slate-800">
         <div>
           <h1 className="font-semibold">{room.name}</h1>
-          <p className="text-xs text-slate-400">Host: {room.host?.nickName ?? room.host?.id}</p>
+          <p className="text-xs text-slate-400">
+            Host: {room.host?.nickName ?? room.host?.id}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={toggleMic}
             disabled={!canSpeak}
-            className={`btn ${micOn ? "btn-primary" : ""} ${!canSpeak ? "opacity-50 cursor-not-allowed" : ""}`}
+            className={`btn ${micOn ? "btn-primary" : ""} ${
+              !canSpeak ? "opacity-50 cursor-not-allowed" : ""
+            }`}
           >
-            {mySeat?.micOn === false ? "Muted by Host" : micOn ? "Mic ON" : "Mic OFF"}
+            {mySeat?.micOn === false
+              ? "Muted by Host"
+              : micOn
+              ? "Mic ON"
+              : "Mic OFF"}
           </button>
 
           <button className="btn btn-danger" onClick={handleLeave}>
@@ -774,7 +830,24 @@ export default function RoomPage() {
       <main className="grid md:grid-cols-3 gap-4 p-4">
         <div className="md:col-span-2">
           <div className="card">
-            <h2 className="font-semibold mb-2">Seats</h2>
+            <div className="flex justify-between">
+              <h2 className="font-semibold mb-2">Seats</h2>
+              <div className="relative">
+                <select
+                  onChange={(e) => updateSeatCount(Number(e.target.value))}
+                  className="bg-slate-900 border border-slate-700 text-white px-3 py-2 rounded-md cursor-pointer text-xs"
+                >
+                  <option value="" disabled selected>
+                    Change Seat Count
+                  </option>
+
+                  <option value="8">8 Seats</option>
+                  <option value="12">12 Seats</option>
+                  <option value="16">16 Seats</option>
+                  <option value="20">20 Seats</option>
+                </select>
+              </div>
+            </div>
             <SeatGrid
               seats={room.seats}
               hostId={room.host.id}
@@ -787,7 +860,9 @@ export default function RoomPage() {
 
           <div className="card mt-4">
             <h3 className="mb-1">Logs</h3>
-            <pre className="bg-black p-2 text-xs h-40 overflow-auto">{log.join("\n")}</pre>
+            <pre className="bg-black p-2 text-xs h-40 overflow-auto">
+              {log.join("\n")}
+            </pre>
           </div>
         </div>
 

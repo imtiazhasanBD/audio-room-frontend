@@ -221,6 +221,18 @@ export async function getPublisherTokenApi(roomId: string) {
   };
 }
 
+export async function getSubscriberTokenApi(roomId: string) {
+  const res = await api.post(`/audio-room/${roomId}/rtc/subscriber`);
+  // backend returns: { token: { provider, token, expiresAt, uid } }
+  return res.data.token as {
+    provider: string;
+    token: string;
+    expiresAt: string;
+    uid: number;
+  };
+}
+
+
 
 export async function joinRoomApi(
   roomId: string

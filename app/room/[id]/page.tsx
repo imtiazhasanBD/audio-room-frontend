@@ -26,6 +26,7 @@ import {
   RoomListItem,
   updateSeatCountApi,
   bulkSeatModeApi,
+  getSubscriberTokenApi,
 } from "@/app/lib/api";
 import { getCurrentUser, getToken } from "@/app/lib/auth";
 import { SeatGrid } from "@/app/components/SeatGrid";
@@ -139,135 +140,126 @@ export default function RoomPage() {
   // ============================
   // RTC JOIN (production-hardened)
   // ============================
-  useEffect(() => {
-    if (!userId) return;
-    if (rtcJoinedRef.current) return;
+// ========================================
+// NEW JOIN FLOW (fixes missing user, seat delays, slow UI)
+// ========================================
+useEffect(() => {
+  if (!userId) return;
+  if (rtcJoinedRef.current) return;
 
-    let cancelled = false;
+  let cancelled = false;
 
-    const joinRtc = async () => {
-      try {
-        println("🔌 Joining RTC...");
+  const startJoinFlow = async () => {
+    try {
+      println("🚀 Starting join flow...");
 
-        // joinRoomApi provides publisher/subscriber token info
-        const joined = await joinRoomApi(roomId);
+      // 1️⃣ JOIN ROOM FIRST — backend now returns full room + host + seats + participants
+      const joined = await joinRoomApi(roomId);
 
-        if (!AgoraRTC) {
-          const agora = await import("agora-rtc-sdk-ng");
-          AgoraRTC = agora.default;
-        }
+      println("✅ Room joined, updating local UI state");
 
-        const client: IAgoraRTCClient = AgoraRTC.createClient({
-          codec: "vp8",
-          mode: "rtc",
-        });
-        client.enableAudioVolumeIndicator();
+      // Apply server room data immediately — FIXES UI REFRESH ISSUES
+      setRoom(joined.room);
+      setParticipants(joined.room.participants);
+      setRoomLoaded(true);
 
-        const rtcUid = joined.token.uid;
-
-        // join Agora
-        await client.join(
-          AGORA_APP_ID,
-          `room_${roomId}`,
-          joined.token.token,
-          rtcUid
-        );
-
-        if (cancelled) {
-          await client.leave();
-          return;
-        }
-
-        // register rtc uid with backend
-        await fetch(`${API_BASE}/audio-room/${roomId}/rtc-uid`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${getToken()}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ rtcUid }),
-        });
-
-        // create microphone track (start muted)
-        const track: ILocalAudioTrack =
-          await AgoraRTC.createMicrophoneAudioTrack();
-        await track.setEnabled(false); // start muted
-
-        setAgoraClient(client);
-        setLocalTrack(track);
-        setRtcJoined(true);
-        println("✅ RTC joined, mic created (muted)");
-
-        // subscribe to event users
-        client.on("user-published", async (u: any, mediaType: any) => {
-          if (u.uid === rtcUid) return;
-          if (mediaType === "audio") {
-            try {
-              await client.subscribe(u, mediaType);
-              u.audioTrack?.play();
-              println(`🔊 Subscribed to remote audio: ${u.uid}`);
-            } catch (e) {
-              console.error("Subscribe error:", e);
-              println("❌ Failed to subscribe to remote user");
-            }
-          }
-        });
-
-        // subscribe existing
-        const remoteUsers = client.remoteUsers ?? [];
-        for (const ru of remoteUsers) {
-          // @ts-ignore
-          if (ru.hasAudio) {
-            try {
-              await client.subscribe(ru, "audio");
-              ru.audioTrack?.play();
-            } catch (e) {
-              console.error("subscribe existing error", e);
-            }
-          }
-        }
-
-        client.on("volume-indicator", (vols: any[]) => {
-          setSpeakers((prev) => {
-            const next = { ...prev };
-            vols.forEach((v) => {
-              if (v.level > 5) next[String(v.uid)] = v.level;
-              else delete next[String(v.uid)];
-            });
-            return next;
-          });
-        });
-
-        client.on("connection-state-change", (cur: string, prev: string) => {
-          println(`🌐 RTC state: ${prev} → ${cur}`);
-        });
-
-        // token renewal
-        client.on("token-privilege-will-expire", async () => {
-          println("⚠️ RTC token will expire soon — renewing...");
-          try {
-            const renewed = await joinRoomApi(roomId);
-            await client.renewToken(renewed.token.token);
-            println("✅ RTC token renewed");
-          } catch (e) {
-            console.error("Token renewal error", e);
-            println("❌ Failed to renew token");
-          }
-        });
-      } catch (err) {
-        console.error("RTC ERROR:", err);
-        println("❌ Failed to join RTC: " + (err as any)?.message || "unknown");
-      } finally {
-        if (!cancelled) setLoadingRtc(false);
+      // 2️⃣ LOAD AGORA SDK IF NEEDED
+      if (!AgoraRTC) {
+        const agora = await import("agora-rtc-sdk-ng");
+        AgoraRTC = agora.default;
       }
-    };
 
-    joinRtc();
+      // 3️⃣ CREATE CLIENT
+      const client: IAgoraRTCClient = AgoraRTC.createClient({
+        codec: "vp8",
+        mode: "rtc",
+      });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [API_BASE, AGORA_APP_ID, roomId, userId]);
+      client.enableAudioVolumeIndicator();
+
+      const rtcUid = joined.token.uid;
+
+      // 4️⃣ JOIN RTC CHANNEL AS SUBSCRIBER
+      await client.join(
+        AGORA_APP_ID,
+        `room_${roomId}`,
+        joined.token.token,
+        rtcUid
+      );
+
+      if (cancelled) {
+        await client.leave();
+        return;
+      }
+
+      // 5️⃣ TELL BACKEND YOUR RTC UID
+      await fetch(`${API_BASE}/audio-room/${roomId}/rtc-uid`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ rtcUid }),
+      });
+
+      // 6️⃣ CREATE MICROPHONE TRACK (default muted)
+      const track = await AgoraRTC.createMicrophoneAudioTrack();
+      await track.setEnabled(false);
+
+      setAgoraClient(client);
+      setLocalTrack(track);
+      setRtcJoined(true);
+      micOnRef.current = false;
+
+      println("🎤 Mic created (muted) & RTC joined");
+
+      // 7️⃣ Handle remote audio subscription
+      client.on("user-published", async (u, mediaType) => {
+        if (mediaType !== "audio") return;
+        try {
+          await client.subscribe(u, mediaType);
+          u.audioTrack?.play();
+        } catch (e) {
+          console.error("subscribe error", e);
+        }
+      });
+
+      // Subscribe to existing remote users
+      for (const ru of client.remoteUsers || []) {
+        // @ts-ignore
+        if (ru.hasAudio) {
+          await client.subscribe(ru, "audio");
+          ru.audioTrack?.play();
+        }
+      }
+
+      // 8️⃣ Volume indicator for seat glow
+      client.on("volume-indicator", (levels) => {
+        setSpeakers((prev) => {
+          const next = { ...prev };
+          levels.forEach((v) => {
+            if (v.level > 5) next[String(v.uid)] = v.level;
+            else delete next[String(v.uid)];
+          });
+          return next;
+        });
+      });
+
+    } catch (err) {
+      console.error("JOIN FLOW ERROR:", err);
+      println("❌ Failed to join RTC: " + (err as any)?.message);
+    } finally {
+      if (!cancelled) setLoadingRtc(false);
+    }
+  };
+
+  startJoinFlow();
+
+  return () => {
+    cancelled = true;
+  };
+}, [roomId, userId]);
+
 
   // ============================
   // SOCKET.IO
@@ -592,56 +584,80 @@ export default function RoomPage() {
     setSelectedSeatIndex(null);
   }
 
-  async function toggleMic() {
-    const track = localTrackRef.current;
-    const client = agoraClientRef.current;
-    const s = socketRef.current;
-    if (!track || !client) return;
+async function toggleMic() {
+  const track = localTrackRef.current;
+  const client = agoraClientRef.current;
+  const s = socketRef.current;
 
-    // Seat-level guard: if seat is muted by host, do not allow unmuting
-    if (!mySeat || mySeat.micOn === false) {
-      println("❌ Seat is muted by host. You cannot unmute.");
+  if (!track || !client) return;
+
+  // Seat-level guard
+  if (!mySeat || mySeat.micOn === false) {
+    println("❌ Seat muted by host — you cannot unmute.");
+    try { await track.setEnabled(false); } catch {}
+    setMicOn(false);
+    micOnRef.current = false;
+    return;
+  }
+
+  const turningOn = !micOnRef.current;
+
+  try {
+    if (turningOn) {
+      // ============================
+      // 1) Request PUBLISHER token
+      // ============================
+      const pub = await getPublisherTokenApi(roomId);  
+      await client.renewToken(pub.token);
+
+      // ============================
+      // 2) Enable & publish track
+      // ============================
+      await track.setEnabled(true);
       try {
-        await track.setEnabled(false);
+        await client.publish([track]);
+      } catch (e) {
+        console.warn("publish warning", e);
+      }
+
+      setMicOn(true);
+      micOnRef.current = true;
+
+      // notify others
+      s?.emit("user.micOn", { roomId, userId });
+
+      println("🎤 Mic ON → Publisher mode");
+    }
+
+    else {
+      // ============================
+      // 1) Request SUBSCRIBER token
+      // ============================
+      const sub = await getSubscriberTokenApi(roomId);
+      await client.renewToken(sub.token);
+
+      // ============================
+      // 2) Unpublish and disable local mic
+      // ============================
+      try {
+        await client.unpublish([track]);
       } catch {}
+
+      await track.setEnabled(false);
+
       setMicOn(false);
       micOnRef.current = false;
-      return;
-    }
 
-    // flip
-    const next = !micOnRef.current;
+      s?.emit("user.micOff", { roomId, userId });
 
-    try {
-      if (next) {
-        // enable locally then publish
-        await track.setEnabled(true);
-        try {
-          await client.publish([track]);
-        } catch (e) {
-          // publish may fail sometimes — still keep track enabled
-          console.warn("publish warning", e);
-        }
-        setMicOn(true);
-        micOnRef.current = true;
-        s?.emit("user.micOn", { roomId, userId });
-        println("🎤 Mic ON (published)");
-      } else {
-        // unpublish then disable
-        try {
-          await client.unpublish([track]);
-        } catch {}
-        await track.setEnabled(false);
-        setMicOn(false);
-        micOnRef.current = false;
-        s?.emit("user.micOff", { roomId, userId });
-        println("🔇 Mic OFF (unpublished)");
-      }
-    } catch (e) {
-      console.error("mic toggle error", e);
-      println("❌ Mic toggle failed");
+      println("🔇 Mic OFF → Subscriber mode");
     }
+  } catch (err: any) {
+    console.error("mic toggle error", err);
+    println("❌ Mic toggle failed: " + err.message);
   }
+}
+
 
   async function handleHostMute(targetUserId: string, mute: boolean) {
     const seat = room?.seats.find((s) => s.userId === targetUserId);
@@ -838,53 +854,71 @@ export default function RoomPage() {
       <main className="grid md:grid-cols-3 gap-4 p-4">
         <div className="md:col-span-2">
           <div className="card">
-<div className="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
-  <div className="flex items-center gap-2">
-    {/* Optional: Add a small icon here if you have one */}
-    <h2 className="text-lg font-bold text-slate-100 tracking-wide">Seats</h2>
-    <span className="px-2 py-0.5 rounded-full bg-slate-800 text-xs text-slate-400 border border-slate-700">
-      Settings
-    </span>
-  </div>
+            <div className="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
+              <div className="flex items-center gap-2">
+                {/* Optional: Add a small icon here if you have one */}
+                <h2 className="text-lg font-bold text-slate-100 tracking-wide">
+                  Seats
+                </h2>
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-xs text-slate-400 border border-slate-700">
+                  Settings
+                </span>
+              </div>
 
-  <div className="flex items-center gap-3">
-    {/* Mode Selector */}
-    <div className="relative">
-      <select
-        onChange={(e) => bulkSeatModeApi(roomId, e.target.value)}
-        className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none  transition-colors cursor-pointer"
-        defaultValue=""
-      >
-        <option value="" disabled>Mode</option>
-        <option value="FREE">Free Mode</option>
-        <option value="REQUEST">Request Mode</option>
-      </select>
-      {/* Custom Chevron for aesthetics */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
-        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-      </div>
-    </div>
+              <div className="flex items-center gap-3">
+                {/* Mode Selector */}
+                <div className="relative">
+                  <select
+                    onChange={(e) => bulkSeatModeApi(roomId, e.target.value)}
+                    className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none  transition-colors cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>
+                      Mode
+                    </option>
+                    <option value="FREE">Free Mode</option>
+                    <option value="REQUEST">Request Mode</option>
+                  </select>
+                  {/* Custom Chevron for aesthetics */}
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+                    <svg
+                      className="fill-current h-4 w-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                    </svg>
+                  </div>
+                </div>
 
-    {/* Seat Count Selector */}
-    <div className="relative">
-      <select
-        onChange={(e) => updateSeatCount(Number(e.target.value))}
-        className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none transition-colors cursor-pointer"
-        defaultValue=""
-      >
-        <option value="" disabled>Capacity</option>
-        <option value="8">8 Seats</option>
-        <option value="12">12 Seats</option>
-        <option value="16">16 Seats</option>
-        <option value="20">20 Seats</option>
-      </select>
-       {/* White Chevron for the colored button */}
-      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-indigo-200">
-        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-      </div>
-    </div>
-  </div>
-</div>
+                {/* Seat Count Selector */}
+                <div className="relative">
+                  <select
+                    onChange={(e) => updateSeatCount(Number(e.target.value))}
+                    className="appearance-none bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-medium rounded-lg px-3 py-2 pr-8 focus:outline-none transition-colors cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>
+                      Capacity
+                    </option>
+                    <option value="8">8 Seats</option>
+                    <option value="12">12 Seats</option>
+                    <option value="16">16 Seats</option>
+                    <option value="20">20 Seats</option>
+                  </select>
+                  {/* White Chevron for the colored button */}
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-indigo-200">
+                    <svg
+                      className="fill-current h-4 w-4"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
             <SeatGrid
               seats={room.seats}
               hostId={room.host.id}

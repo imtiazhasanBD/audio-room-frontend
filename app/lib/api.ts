@@ -94,6 +94,9 @@ export type RoomDetail = {
   id: string;
   name: string;
   hostId: string;
+  isLocked: boolean;
+  chatMode: chatMode;
+  createdAt: string;
   imageUrl?: string;
   seatCount: number;
   tags: string[];
@@ -107,7 +110,7 @@ export type RoomDetail = {
   participants: Participant[];
   participantCount: number;
 };
-
+export type chatMode = "ALL" | "SEAT_ONLY" | "LOCKED";
 
 export type RoomListItem = {
   id: string;
@@ -235,10 +238,12 @@ export async function getSubscriberTokenApi(roomId: string) {
 
 
 export async function joinRoomApi(
-  roomId: string
+  roomId: string,
+  pin?: string
 ): Promise<JoinRoomResult> {
   // controller: { success: true, data: { room, token } }
-  const res = await api.post(`/audio-room/${roomId}/join`);
+  const res = await api.post(`/audio-room/${roomId}/join`, pin ? { pin } : {});
+  console.log(res, "gggggggggggggggg")
   return res.data.data as JoinRoomResult;
 }
 
@@ -246,6 +251,14 @@ export async function leaveRoomApi(roomId: string) {
   // controller: { success: true, data: ... }
   await api.post(`/audio-room/${roomId}/leave`);
 }
+
+export async function leaveSeatOnly(roomId: string) {
+  // controller: { success: true, data: ... }
+  await api.patch(`/audio-room/${roomId}/seat/leave`);
+}
+
+export const removeUserFromSeatApi = (roomId: string, userId: string) =>
+  api.post(`/audio-room/${roomId}/seat/remove-user`, { userId });
 
 
 export async function hostTakeSeatApi(roomId: string, seatIndex: number) {

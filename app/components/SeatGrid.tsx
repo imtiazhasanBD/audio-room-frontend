@@ -11,6 +11,7 @@ type Props = {
   hostId: string;
   onRequestSeat: (seatIndex: number) => void;
   onClickSeatAsHost?: (seatIndex: number) => void;
+  hostRemoveSeatUser?: (userId: string) => void;
   speakers?: Record<string, number>;
   participants?: Participant[];
 };
@@ -20,6 +21,7 @@ export function SeatGrid({
   hostId,
   onRequestSeat,
   onClickSeatAsHost,
+  hostRemoveSeatUser,
   speakers = {},
   participants = [],
 }: Props) {
@@ -88,6 +90,7 @@ export function SeatGrid({
                   onClick={(e) => {
                     e.stopPropagation();
                     onClickSeatAsHost?.(seat.index);
+                    hostRemoveSeatUser?.(seat.user?.id?? '');
                   }}
                   className="absolute top-1 right-1 text-xs text-slate-400 hover:text-white"
                 >
@@ -97,7 +100,7 @@ export function SeatGrid({
 
               {/* 🏆 HOST BADGE */}
               {isHostSeat && (
-                <div className="absolute top-1 left-1 bg-emerald-600 text-[10px] px-2 py-[2px] rounded-full flex items-center gap-1">
+                <div className="absolute top-1 left-1 bg-emerald-600 text-[10px] px-2 rounded-full flex items-center gap-1">
                   <Crown size={10} className="text-yellow-300" />
                   Host
                 </div>

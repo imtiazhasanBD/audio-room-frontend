@@ -444,16 +444,6 @@ export default function RoomPage() {
   // ============================
   // Host Mute / Kick
   // ============================
-  async function handleHostMute(targetUser: string, mute: boolean) {
-    const seat = room?.seats.find((s) => s.userId === targetUser);
-    if (!seat) return;
-
-    try {
-      await hostMuteSeatApi(roomId, seat.index, mute);
-    } catch (e) {
-      println("❌ Host mute failed");
-    }
-  }
 
   async function handleKick(targetUser: string) {
     const isHost = room?.host.id === userId;
@@ -582,19 +572,25 @@ export default function RoomPage() {
       transports: ["websocket"],
     });
 
-    s.on("connect", () => {
-      println("✅ WS connected");
-      s.emit("room.join", { roomId, userId });
-    });
-
     s.on("disconnect", (r) => println(`⚠ WS disconnected: ${r}`));
 
-    s.on("room.join", refreshRoomData);
-    s.on("room.leave", refreshRoomData);
+    s.on("participant.update", ({ participants }) => {
+      // setParticipants(participants);
+      console.log("participant update", participants);
+    });
+
+    s.on("seat.requests", ({ requests }) => {
+      console.log("seat-request", requests);
+      setSeatRequests(requests); // authoritative overwrite
+      setSeatApprovalOpen(true);
+    });
+
+    // s.on("room.leave", refreshRoomData);
+    // s.on("room.leave", refreshRoomData);
 
     // Seat Updated from host
     s.on("seat.update", (data: { seats: Seat[] }) => {
-      console.log(data);
+      console.log("updateddd", participants);
       setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
     });
 
@@ -612,13 +608,14 @@ export default function RoomPage() {
     });
 
     // Seat request
-    s.on("seat.request", ({ request }) => {
-      setSeatRequests((prev) =>
-        prev.some((x) => x.id === request.id) ? prev : [...prev, request]
-      );
-      setSeatApprovalOpen(true);
-    });
+    // s.on("seat.request", ({ request }) => {
+    //   setSeatRequests((prev) =>
+    //     prev.some((x) => x.id === request.id) ? prev : [...prev, request]
+    //   );
+    //   setSeatApprovalOpen(true);
+    // });
     s.on("seat.invited", (data) => {
+      console.log("invited data", data);
       setInvite(data);
     });
 
@@ -864,7 +861,7 @@ export default function RoomPage() {
               roomId={roomId}
               participants={participants}
               refreshRoom={refreshRoomData}
-              onMute={handleHostMute}
+              //  onMute={handleHostMute}
               onKick={handleKick}
             />
           )}

@@ -15,14 +15,14 @@ export default function HostModerationPanel({
   roomId,
   participants,
   refreshRoom,
-  onMute,
+  //onMute,
   onKick,
 }: {
   socket: any;
   roomId: string;
   participants: Participant[];
   refreshRoom: () => void;
-  onMute: (targetUserId: string, mute: boolean) => Promise<void>;
+//  onMute: (targetUserId: string, mute: boolean) => Promise<void>;
   onKick: (userId: string) => void;
 }) {
   // ===========================
@@ -116,7 +116,7 @@ export default function HostModerationPanel({
                 <div className="flex gap-1">
                   <button
                     className="btn btn-sm bg-red-500/20 hover:bg-red-500/30"
-                    onClick={() => onMute(p.userId, true)}
+                  //  onClick={() => onMute(p.userId, true)}
                   >
                     Mute
                   </button>

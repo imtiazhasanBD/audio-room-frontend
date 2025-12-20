@@ -574,7 +574,7 @@ export default function RoomPage() {
 
     s.on("disconnect", (r) => println(`⚠ WS disconnected: ${r}`));
 
-    s.on("participant.update", ({ participants }) => {
+    s.on("participant.update", ( {participants} ) => {
       setParticipants(participants);
       console.log("participant update", participants);
     });
@@ -589,9 +589,9 @@ export default function RoomPage() {
     // s.on("room.leave", refreshRoomData);
 
     // Seat Updated from host
-    s.on("seat.update", (data: { seats: Seat[] }) => {
-      console.log("updateddd", participants);
-      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
+    s.on("seat.update", (data:  Seat[] ) => {
+      console.log("updateddd", data);
+      setRoom((prev) => (prev ? { ...prev, data } : prev));
     });
 
     // Someone turned mic ON/OFF

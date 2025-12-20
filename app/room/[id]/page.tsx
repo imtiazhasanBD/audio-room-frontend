@@ -589,9 +589,9 @@ export default function RoomPage() {
     // s.on("room.leave", refreshRoomData);
 
     // Seat Updated from host
-    s.on("seat.update", (data:  Seat[] ) => {
+    s.on("seat.update", (data: { seats: Seat[] }) => {
       console.log("updateddd", data);
-      setRoom((prev) => (prev ? { ...prev, data } : prev));
+      setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
     });
 
     // Someone turned mic ON/OFF

@@ -575,7 +575,7 @@ export default function RoomPage() {
     s.on("disconnect", (r) => println(`⚠ WS disconnected: ${r}`));
 
     s.on("participant.update", ({ participants }) => {
-      // setParticipants(participants);
+      setParticipants(participants);
       console.log("participant update", participants);
     });
 

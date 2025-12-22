@@ -15,7 +15,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const GOOGLE_CLIENT_ID = "729799433930-n8srt06sdicha4jhsan8khtk52vj8qev.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "201708348580-itpnq4hf3rohadtd1h54qoe46m0h0pbq.apps.googleusercontent.com";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -116,7 +116,7 @@ export default function LoginPage() {
             <div 
               id="g_id_onload"
               data-client_id={GOOGLE_CLIENT_ID}
-              data-login_uri="http://localhost:8000/auth/google/verify"
+              data-login_uri="http://localhost:8000/auth/google-verify"
               data-auto_prompt="false"
             />
             <div 

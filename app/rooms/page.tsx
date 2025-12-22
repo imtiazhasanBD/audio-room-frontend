@@ -61,7 +61,7 @@ export default function RoomsPage() {
         <div className="flex items-center gap-2 text-sm">
           {user && (
             <span className="text-slate-300">
-              Logged in as <b>{user.username ?? user.sub}</b>
+              Logged in as <b>{user.email ?? user.sub}</b>
             </span>
           )}
           <button className="btn" onClick={logout}>Logout</button>

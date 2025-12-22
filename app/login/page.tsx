@@ -49,6 +49,7 @@ export default function LoginPage() {
   // =========================
   useEffect(() => {
     window.handleGoogleLogin = async (response: any) => {
+      console.log("response", response)
       try {
         const res = await fetch(
           `${API_BASE}/auth/google-verify`,

@@ -13,7 +13,7 @@ interface SeatModeModalProps {
   onChangeMode: (mode: SeatMode) => void;
   OnBulkSeatMode: (mode: SeatMode) => void;
   onMuteSeat: (seatIndex: number, mute: boolean) => void;
-    participants: Participant[];
+  participants: Participant[];
   socket: Socket | null;
   userId: string;
   roomId: string;
@@ -26,20 +26,19 @@ export default function SeatModeModal({
   onChangeMode,
   OnBulkSeatMode,
   onMuteSeat,
-    participants,
-    userId,
+  participants,
+  userId,
   socket,
   roomId,
 }: SeatModeModalProps) {
   if (!open || seatIndex === null) return null;
-    const [inviteOpen, setInviteOpen] = useState(false);
-      const [showInviteList, setShowInviteList] = useState(false);
-
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [showInviteList, setShowInviteList] = useState(false);
 
   // Seat number for display (1-based)
   const seatNumber = seatIndex + 1;
-    // Only users WITHOUT seats
-   function inviteUser(userId: string) {
+  // Only users WITHOUT seats
+  function inviteUser(userId: string) {
     if (!socket) return;
 
     socket.emit("seat.invite", {
@@ -51,7 +50,7 @@ export default function SeatModeModal({
     setInviteOpen(false);
     onClose();
   }
-console.log("remove user id", userId)
+  console.log("remove user id", userId);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -96,25 +95,21 @@ console.log("remove user id", userId)
         >
           🔊 Unmute Seat
         </button>
-     {/* 🔥 INVITE BUTTON */}
+        {/* 🔥 INVITE BUTTON */}
         <button
           className="btn btn-primary w-full"
           onClick={() => setShowInviteList(true)}
         >
           Invite User
         </button>
-       {/* INVITE USER LIST */}
+        {/* INVITE USER LIST */}
         {showInviteList && (
           <div className="border-t border-slate-700 pt-2">
-            <p className="text-sm mb-2 text-slate-300">
-              Select user to invite
-            </p>
+            <p className="text-sm mb-2 text-slate-300">Select user to invite</p>
 
             <div className="max-h-40 overflow-y-auto space-y-1">
               {participants.length === 0 && (
-                <p className="text-xs text-slate-500">
-                  No available users
-                </p>
+                <p className="text-xs text-slate-500">No available users</p>
               )}
 
               {participants.map((u) => (
@@ -127,23 +122,20 @@ console.log("remove user id", userId)
                     src={u.user.profilePicture || "/avatar.png"}
                     className="w-6 h-6 rounded-full"
                   />
-                  <span className="text-sm">
-                    {u.user.nickName}
-                  </span>
+                  <span className="text-sm">{u.user.nickName}</span>
                 </button>
               ))}
             </div>
-
           </div>
         )}
-         {userId && (
-            <button
-  className="btn btn-warning w-full mt-2 bg-red-900 rounded"
-  onClick={() => removeUserFromSeatApi(roomId, userId)}
->
-  Remove from seat
-</button>
-            )}
+        {userId && (
+          <button
+            className="btn btn-warning w-full mt-2 bg-red-900 rounded"
+            onClick={() => removeUserFromSeatApi(roomId, userId)}
+          >
+            Remove from seat
+          </button>
+        )}
         <button
           className="w-full mt-3 py-2 bg-slate-600 rounded"
           onClick={onClose}

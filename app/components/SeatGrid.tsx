@@ -41,6 +41,19 @@ export function SeatGrid({
     }
   }
 
+  const getImageSrc = (src?: string) => {
+  if (!src) return "/avatar-placeholder.png";
+
+  // Absolute URL (Google, Facebook, etc.)
+  if (src.startsWith("http://") || src.startsWith("https://")) {
+    return src;
+  }
+
+  // Relative URL (your backend)
+  return `https://meetalklive.com${src}`;
+};
+
+
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
       {seats
@@ -141,7 +154,7 @@ export function SeatGrid({
                     </span>
                   ) : avatarUrl ? (
                     <img
-                      src={`${API_BASE}${avatarUrl}`}
+                      src={getImageSrc(avatarUrl)}
                       className="w-full h-full object-cover"
                     />
                   ) : (

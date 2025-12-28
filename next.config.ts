@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
         hostname: "kotkoti.stallforest.com",
         pathname: "/uploads/**",
       },
+
+      // Meetalk Live images 
+      {
+        protocol: "https",
+        hostname: "meetalklive.com",
+        pathname: "/uploads/**",
+      },
     ],
   },
 };

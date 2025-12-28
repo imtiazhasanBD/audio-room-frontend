@@ -87,6 +87,7 @@ export type Participant = {
     nickName: string;
     profilePicture: string | null;
     email?: string;
+    gender?: string;
   };
 };
 

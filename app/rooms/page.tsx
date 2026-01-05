@@ -56,6 +56,7 @@ export default function RoomsPage() {
       <header className="border-b border-slate-800 px-6 py-3 flex items-center justify-between bg-slate-950/90">
         <div>
           <span className="text-lg font-semibold">🎧 Audio Rooms</span>
+          <span onClick={() => router.push("/inbox")} className="ml-2 text-sm font-bold text-red-500 cursor-pointer">Inbox</span>
         </div>
 
         <div className="flex items-center gap-2 text-sm">

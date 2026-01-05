@@ -607,6 +607,12 @@ export default function RoomPage() {
       );
     });
 
+
+    s.on("seat.removed", async ({ userId }) => {
+      console.log("helowwwwwwwww", userId);
+    });
+
+
     // Seat request
     // s.on("seat.request", ({ request }) => {
     //   setSeatRequests((prev) =>

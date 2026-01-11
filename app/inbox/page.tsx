@@ -12,6 +12,8 @@ import { getChatSocket } from "../lib/socket";
 /* =========================
    TYPES
 ========================= */
+type MessageType = "TEXT" | "IMAGE" | "SYSTEM";
+
 interface Conversation {
   id: string;
   type: "PRIVATE" | "GROUP";
@@ -30,6 +32,7 @@ interface Conversation {
     id: string;
     content: string;
     createdAt: string;
+    type?: MessageType;
   } | null;
 
   lastMessageAt: string | null;
@@ -39,12 +42,10 @@ interface Conversation {
 interface ConversationUpdatePayload {
   conversationId: string;
   lastMessage: {
-    conversationId: string;
-    message: {
-      id: string;
-      content: string;
-      createdAt: string;
-    };
+    id: string;
+    content: string;
+    createdAt: string;
+    type?: MessageType;
   };
   unreadIncrement: number;
 }
@@ -73,7 +74,13 @@ export default function InboxPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
-      .then(setConversations)
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setConversations(data.filter(Boolean));
+        } else {
+          setConversations([]);
+        }
+      })
       .catch(() => {
         clearToken();
         router.replace("/login");
@@ -82,47 +89,51 @@ export default function InboxPage() {
   }, [router]);
 
   /* =========================
-     SOCKET SETUP (CORRECT)
+     SOCKET SETUP
   ========================= */
   useEffect(() => {
     const socket = getChatSocket();
     socketRef.current = socket;
 
     const onConversationUpdate = (data: ConversationUpdatePayload) => {
-      const msg = data.lastMessage.message;
+      const msg = data?.lastMessage;
+      if (!msg || !msg.id) return;
 
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id !== data.conversationId) return c;
+      setConversations((prev) => {
+        if (!Array.isArray(prev)) return [];
 
-          return {
-            ...c,
-            lastMessage: {
-              id: msg.id,
-              content: msg.content,
-              createdAt: msg.createdAt,
-            },
-            lastMessageAt: msg.createdAt,
-            unreadCount: c.unreadCount + (data.unreadIncrement ?? 0),
-          };
-        }),
-      );
+        return prev
+          .filter(Boolean)
+          .map((c) => {
+            if (!c || !c.id) return c;
+            if (c.id !== data.conversationId) return c;
+
+            return {
+              ...c,
+              lastMessage: {
+                id: msg.id,
+                content: msg.content,
+                createdAt: msg.createdAt,
+                type: msg.type,
+              },
+              lastMessageAt: msg.createdAt,
+              unreadCount: (c.unreadCount ?? 0) + (data.unreadIncrement ?? 0),
+            };
+          });
+      });
     };
 
     const onPresenceOnline = ({ userId }: { userId: string }) => {
       setConversations((prev) =>
-        prev.map((c) => {
-          if (!c.otherUser) return c;
-          if (c.otherUser.id !== userId) return c;
-
-          return {
-            ...c,
-            otherUser: {
-              ...c.otherUser,
-              lastSeenAt: null,
-            },
-          };
-        }),
+        prev
+          .filter(Boolean)
+          .map((c) => {
+            if (!c?.otherUser || c.otherUser.id !== userId) return c;
+            return {
+              ...c,
+              otherUser: { ...c.otherUser, lastSeenAt: null },
+            };
+          }),
       );
     };
 
@@ -134,18 +145,15 @@ export default function InboxPage() {
       lastSeen: string;
     }) => {
       setConversations((prev) =>
-        prev.map((c) => {
-          if (!c.otherUser) return c;
-          if (c.otherUser.id !== userId) return c;
-
-          return {
-            ...c,
-            otherUser: {
-              ...c.otherUser,
-              lastSeenAt: lastSeen,
-            },
-          };
-        }),
+        prev
+          .filter(Boolean)
+          .map((c) => {
+            if (!c?.otherUser || c.otherUser.id !== userId) return c;
+            return {
+              ...c,
+              otherUser: { ...c.otherUser, lastSeenAt: lastSeen },
+            };
+          }),
       );
     };
 
@@ -172,6 +180,13 @@ export default function InboxPage() {
     return `${Math.floor(diff / 86_400_000)}d`;
   }
 
+  function lastMessagePreview(c: Conversation) {
+    if (!c.lastMessage) return "No messages yet";
+    if (c.lastMessage.type === "IMAGE") return "🖼️ Photo";
+    if (c.lastMessage.type === "SYSTEM") return c.lastMessage.content;
+    return c.lastMessage.content;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0c10]">
@@ -196,6 +211,8 @@ export default function InboxPage() {
           )}
 
           {conversations.map((c) => {
+            if (!c) return null;
+
             const isGroup = c.type === "GROUP";
             const name = isGroup
               ? c.title ?? "Group"
@@ -206,9 +223,11 @@ export default function InboxPage() {
                 key={c.id}
                 onClick={() => {
                   setConversations((prev) =>
-                    prev.map((x) =>
-                      x.id === c.id ? { ...x, unreadCount: 0 } : x,
-                    ),
+                    prev
+                      .filter(Boolean)
+                      .map((x) =>
+                        x.id === c.id ? { ...x, unreadCount: 0 } : x,
+                      ),
                   );
                   router.push(`/inbox/${c.id}`);
                 }}
@@ -238,7 +257,7 @@ export default function InboxPage() {
                         {name}
                       </div>
                       <div className="text-slate-400 text-xs truncate max-w-[220px]">
-                        {c.lastMessage?.content || "No messages yet"}
+                        {lastMessagePreview(c)}
                       </div>
                     </div>
                   </div>

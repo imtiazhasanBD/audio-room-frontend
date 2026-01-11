@@ -26,11 +26,14 @@ interface OtherMember {
   wealthLevel: LevelInfo;
 }
 
+type MessageType = "TEXT" | "IMAGE" | "SYSTEM";
+
 interface Message {
   id: string;
   senderId: string;
   content: string;
   createdAt: string;
+  type: MessageType;
   sender: {
     id: string;
     profilePicture: string | null;
@@ -84,13 +87,12 @@ export default function ChatPage() {
   }, [conversationId, router]);
 
   /* =========================
-     SOCKET SETUP (CORRECT)
+     SOCKET SETUP
   ========================= */
   useEffect(() => {
     const socket = getChatSocket();
     socketRef.current = socket;
 
-    // Join conversation (handle reconnects)
     if (socket.connected) {
       socket.emit("conversation:join", { conversationId });
     } else {
@@ -120,7 +122,6 @@ export default function ChatPage() {
 
     return () => {
       socket.emit("conversation:leave", { conversationId });
-
       socket.off("message:new", onMessageNew);
       socket.off("typing:start", onTypingStart);
       socket.off("typing:stop", onTypingStop);
@@ -182,6 +183,17 @@ export default function ChatPage() {
         {messages.map((m) => {
           const isMe = m.senderId === myUserId;
 
+          if (m.type === "SYSTEM") {
+            return (
+              <div
+                key={m.id}
+                className="text-center text-xs text-slate-400 my-4"
+              >
+                {m.content}
+              </div>
+            );
+          }
+
           return (
             <div
               key={m.id}
@@ -191,7 +203,7 @@ export default function ChatPage() {
                 src={
                   m.sender.profilePicture
                     ? `${API_BASE}${m.sender.profilePicture}`
-                    : "/default-avatar.png"
+                    : ""
                 }
                 className="w-10 h-10 rounded-full"
               />
@@ -199,12 +211,26 @@ export default function ChatPage() {
               <div
                 className={`px-4 py-2 rounded-2xl max-w-[70%]
                 ${
-                  isMe
-                    ? "bg-blue-600 text-white rounded-br-none"
-                    : "bg-slate-800 text-white rounded-bl-none"
+                  m.type === "IMAGE"
+                    ? "bg-transparent p-1"
+                    : isMe
+                      ? "bg-blue-600 text-white rounded-br-none"
+                      : "bg-slate-800 text-white rounded-bl-none"
                 }`}
               >
-                <p className="text-sm">{m.content}</p>
+                {m.type === "IMAGE" ? (
+                  <img
+                    src={`${API_BASE}${m.content}`}
+                    alt="chat image"
+                    onClick={() =>
+                      window.open(`${API_BASE}${m.content}`, "_blank")
+                    }
+                    className="rounded-lg max-w-full max-h-60 object-cover cursor-pointer"
+                  />
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{m.content}</p>
+                )}
+
                 <span className="text-[10px] opacity-50 block mt-1">
                   {new Date(m.createdAt).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -216,7 +242,7 @@ export default function ChatPage() {
           );
         })}
 
-        {/* TYPING INDICATOR */}
+        {/* TYPING */}
         {isOtherTyping && (
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-slate-700" />

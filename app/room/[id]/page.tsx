@@ -178,6 +178,7 @@ export default function RoomPage() {
     try {
       const data = await getRoomDetail(roomId);
       setRoom(data);
+      console.log("dataaaaaaaroom", data)
       setParticipants(data.participants);
       setRoomLoaded(true);
     } catch (e) {
@@ -555,7 +556,7 @@ export default function RoomPage() {
 
     router.push("/rooms");
   }
-
+console.log("ddddddddddddd", room)
   // ============================
   // SOCKET.IO CONNECT
   // ============================
@@ -589,10 +590,14 @@ export default function RoomPage() {
     // s.on("room.leave", refreshRoomData);
 
     // Seat Updated from host
-    s.on("seat.update", (data: { seats: Seat[] }) => {
+    s.on("seat.update", (data: { seats: [] }) => {
       console.log("updateddd", data);
       setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
     });
+    s.on("room.update", (room: RoomDetail) => {
+      console.log("updated room", room )
+      setRoom(room);
+    })
 
     // Someone turned mic ON/OFF
     s.on("user.micOn", ({ userId: target }) => {
@@ -758,6 +763,7 @@ export default function RoomPage() {
         <div>
           <h1 className="font-semibold">{room.name}</h1>
           <p className="text-xs text-slate-400">Host: {room.host.nickName}</p>
+          <p className="text-xs text-slate-400">Total-Wealth: {room.totalWealth?? 0}</p>
         </div>
 
         <div className="flex gap-2">

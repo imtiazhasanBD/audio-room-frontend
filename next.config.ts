@@ -30,6 +30,10 @@ const nextConfig: NextConfig = {
         hostname: "meetalklive.com",
         pathname: "/uploads/**",
       },
+     {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
     ],
   },
 };

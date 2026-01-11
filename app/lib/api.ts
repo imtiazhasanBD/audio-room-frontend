@@ -110,6 +110,7 @@ export type RoomDetail = {
   seats: Seat[];
   participants: Participant[];
   participantCount: number;
+  totalWealth: number
 };
 export type chatMode = "ALL" | "SEAT_ONLY" | "LOCKED";
 

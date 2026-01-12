@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Socket } from "socket.io-client";
+import { Send, Heart, Star, Coins, Image as ImageIcon } from "lucide-react";
 import { API_BASE } from "../../lib/api";
 import { getToken } from "../../lib/auth";
-import { Send, Heart, Star, Coins } from "lucide-react";
 import { getChatSocket } from "@/app/lib/socket";
 
 /* =========================
@@ -55,12 +55,14 @@ export default function ChatPage() {
   const socketRef = useRef<Socket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [otherUser, setOtherUser] = useState<OtherMember | null>(null);
   const [text, setText] = useState("");
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   /* =========================
      INITIAL LOAD
@@ -87,44 +89,35 @@ export default function ChatPage() {
   }, [conversationId, router]);
 
   /* =========================
-     SOCKET SETUP
+     SOCKET SETUP (TEXT ONLY)
   ========================= */
   useEffect(() => {
     const socket = getChatSocket();
     socketRef.current = socket;
 
-    if (socket.connected) {
-      socket.emit("conversation:join", { conversationId });
-    } else {
-      socket.once("connect", () => {
-        socket.emit("conversation:join", { conversationId });
-      });
-    }
+    const join = () => socket.emit("conversation:join", { conversationId });
 
-    const onMessageNew = (msg: Message) => {
+    socket.connected ? join() : socket.once("connect", join);
+
+    const onMessageNew = (message: Message) => {
+      console.log("message", message);
       setIsOtherTyping(false);
       setMessages((prev) =>
-        prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
+        prev.some((m) => m.id === message.id) ? prev : [...prev, message]
       );
     };
 
-    const onTypingStart = ({ userId }: { userId: string }) => {
-      if (userId !== myUserId) setIsOtherTyping(true);
-    };
-
-    const onTypingStop = ({ userId }: { userId: string }) => {
-      if (userId !== myUserId) setIsOtherTyping(false);
-    };
-
     socket.on("message:new", onMessageNew);
-    socket.on("typing:start", onTypingStart);
-    socket.on("typing:stop", onTypingStop);
+    socket.on("typing:start", ({ userId }) => {
+      if (userId !== myUserId) setIsOtherTyping(true);
+    });
+    socket.on("typing:stop", ({ userId }) => {
+      if (userId !== myUserId) setIsOtherTyping(false);
+    });
 
     return () => {
       socket.emit("conversation:leave", { conversationId });
       socket.off("message:new", onMessageNew);
-      socket.off("typing:start", onTypingStart);
-      socket.off("typing:stop", onTypingStop);
     };
   }, [conversationId, myUserId]);
 
@@ -136,7 +129,7 @@ export default function ChatPage() {
   }, [messages, isOtherTyping]);
 
   /* =========================
-     SEND MESSAGE
+     SEND TEXT (SOCKET)
   ========================= */
   function sendMessage() {
     if (!text.trim() || !socketRef.current) return;
@@ -148,6 +141,46 @@ export default function ChatPage() {
 
     socketRef.current.emit("typing:stop", { conversationId });
     setText("");
+  }
+
+  /* =========================
+     SEND IMAGE (API ONLY)
+  ========================= */
+  async function handleImageSend(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const token = getToken();
+    if (!token) return;
+
+    const formData = new FormData();
+    formData.append("conversationId", conversationId);
+    formData.append("image", file);
+
+    try {
+      const res = await fetch(`${API_BASE}/chat/send-message`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const apiMessage = await res.json();
+
+      // Normalize message for UI
+      const message: Message = {
+        ...apiMessage,
+        sender: {
+          id: myUserId!,
+          profilePicture: null, // or your cached avatar
+        },
+      };
+    } catch (err) {
+      console.error("Image send failed", err);
+    } finally {
+      e.target.value = "";
+    }
   }
 
   /* =========================
@@ -185,10 +218,7 @@ export default function ChatPage() {
 
           if (m.type === "SYSTEM") {
             return (
-              <div
-                key={m.id}
-                className="text-center text-xs text-slate-400 my-4"
-              >
+              <div key={m.id} className="text-center text-xs text-slate-400">
                 {m.content}
               </div>
             );
@@ -203,7 +233,7 @@ export default function ChatPage() {
                 src={
                   m.sender.profilePicture
                     ? `${API_BASE}${m.sender.profilePicture}`
-                    : ""
+                    : "/default-avatar.png"
                 }
                 className="w-10 h-10 rounded-full"
               />
@@ -214,42 +244,28 @@ export default function ChatPage() {
                   m.type === "IMAGE"
                     ? "bg-transparent p-1"
                     : isMe
-                      ? "bg-blue-600 text-white rounded-br-none"
-                      : "bg-slate-800 text-white rounded-bl-none"
+                    ? "bg-blue-600 text-white rounded-br-none"
+                    : "bg-slate-800 text-white rounded-bl-none"
                 }`}
               >
                 {m.type === "IMAGE" ? (
                   <img
                     src={`${API_BASE}${m.content}`}
-                    alt="chat image"
+                    className="rounded-lg max-h-60 cursor-pointer"
                     onClick={() =>
                       window.open(`${API_BASE}${m.content}`, "_blank")
                     }
-                    className="rounded-lg max-w-full max-h-60 object-cover cursor-pointer"
                   />
                 ) : (
                   <p className="text-sm whitespace-pre-wrap">{m.content}</p>
                 )}
-
-                <span className="text-[10px] opacity-50 block mt-1">
-                  {new Date(m.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
               </div>
             </div>
           );
         })}
 
-        {/* TYPING */}
         {isOtherTyping && (
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-slate-700" />
-            <div className="bg-slate-800 px-4 py-2 rounded-2xl animate-pulse text-sm text-slate-300">
-              typing…
-            </div>
-          </div>
+          <div className="text-sm text-slate-400 animate-pulse">typing…</div>
         )}
 
         <div ref={bottomRef} />
@@ -258,16 +274,21 @@ export default function ChatPage() {
       {/* INPUT */}
       <div className="p-4">
         <div className="flex gap-2 bg-slate-900 rounded-full p-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 rounded-full bg-slate-700"
+            disabled={uploading}
+          >
+            <ImageIcon size={16} />
+          </button>
+
           <input
             value={text}
             onChange={(e) => {
               setText(e.target.value);
-
               socketRef.current?.emit("typing:start", { conversationId });
-
               if (typingTimeoutRef.current)
                 clearTimeout(typingTimeoutRef.current);
-
               typingTimeoutRef.current = setTimeout(() => {
                 socketRef.current?.emit("typing:stop", { conversationId });
               }, 1000);
@@ -276,6 +297,7 @@ export default function ChatPage() {
             placeholder="Type a message..."
             className="flex-1 bg-transparent px-4 text-white outline-none"
           />
+
           <button
             onClick={sendMessage}
             className="bg-blue-600 p-3 rounded-full"
@@ -283,6 +305,14 @@ export default function ChatPage() {
             <Send size={16} />
           </button>
         </div>
+
+        <input
+          type="file"
+          accept="image/*"
+          hidden
+          ref={fileInputRef}
+          onChange={handleImageSend}
+        />
       </div>
     </div>
   );

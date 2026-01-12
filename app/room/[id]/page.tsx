@@ -95,6 +95,9 @@ export default function RoomPage() {
   const [chatMode, setChatMode] = useState<chatMode | null>(
     room?.chatMode ?? null
   );
+  const [seatGifs, setSeatGifs] = useState<
+    Record<number, { gifUrl: string; ts: number }>
+  >({});
 
   const [loadingRtc, setLoadingRtc] = useState(true);
   const [roomLoaded, setRoomLoaded] = useState(false);
@@ -178,7 +181,7 @@ export default function RoomPage() {
     try {
       const data = await getRoomDetail(roomId);
       setRoom(data);
-      console.log("dataaaaaaaroom", data)
+      console.log("dataaaaaaaroom", data);
       setParticipants(data.participants);
       setRoomLoaded(true);
     } catch (e) {
@@ -556,7 +559,7 @@ export default function RoomPage() {
 
     router.push("/rooms");
   }
-console.log("ddddddddddddd", room)
+  console.log("ddddddddddddd", room);
   // ============================
   // SOCKET.IO CONNECT
   // ============================
@@ -595,9 +598,9 @@ console.log("ddddddddddddd", room)
       setRoom((prev) => (prev ? { ...prev, seats: data.seats } : prev));
     });
     s.on("room.update", (room: RoomDetail) => {
-      console.log("updated room", room )
+      console.log("updated room", room);
       setRoom(room);
-    })
+    });
 
     // Someone turned mic ON/OFF
     s.on("user.micOn", ({ userId: target }) => {
@@ -612,11 +615,25 @@ console.log("ddddddddddddd", room)
       );
     });
 
-
     s.on("seat.removed", async ({ userId }) => {
       console.log("helowwwwwwwww", userId);
     });
 
+    s.on("seat.gif", ({ seatIndex, gifUrl, ts }) => {
+      setSeatGifs((prev) => ({
+        ...prev,
+        [seatIndex]: { gifUrl, ts },
+      }));
+
+      // auto remove after 3 seconds
+      setTimeout(() => {
+        setSeatGifs((prev) => {
+          const copy = { ...prev };
+          delete copy[seatIndex];
+          return copy;
+        });
+      }, 3000);
+    });
 
     // Seat request
     // s.on("seat.request", ({ request }) => {
@@ -741,6 +758,14 @@ console.log("ddddddddddddd", room)
     };
   }, []);
 
+  function sendSeatGif(gifUrl: string, seatIndex?: number) {
+    socketRef.current?.emit("seat.gif", {
+      roomId,
+      gifUrl,
+      seatIndex, // optional
+    });
+  }
+
   // ============================
   // RENDER
   // ============================
@@ -763,7 +788,9 @@ console.log("ddddddddddddd", room)
         <div>
           <h1 className="font-semibold">{room.name}</h1>
           <p className="text-xs text-slate-400">Host: {room.host.nickName}</p>
-          <p className="text-xs text-slate-400">Total-Wealth: {room.totalWealth?? 0}</p>
+          <p className="text-xs text-slate-400">
+            Total-Wealth: {room.totalWealth ?? 0}
+          </p>
         </div>
 
         <div className="flex gap-2">
@@ -799,6 +826,40 @@ console.log("ddddddddddddd", room)
           <div className="card">
             <div className="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
               <h2 className="text-lg font-bold">Seats</h2>
+              <div className="flex gap-2 mb-3">
+                <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media.giphy.com/media/3o7abB06u9bNzA8lu8/giphy.gif"
+                    )
+                  }
+                >
+                  🎉
+                </button>
+
+                <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+                    )
+                  }
+                >
+                  🔥
+                </button>
+
+                <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif"
+                    )
+                  }
+                >
+                  😂
+                </button>
+              </div>
 
               <div className="flex gap-3">
                 {/* bulk mode */}
@@ -837,6 +898,7 @@ console.log("ddddddddddddd", room)
               onRequestSeat={handleSeatClick}
               hostRemoveSeatUser={removeUserFromSeat}
               participants={participants}
+              seatGifs={seatGifs}
               speakers={speakers}
               onClickSeatAsHost={(i) => {
                 setSelectedSeatIndex(i);

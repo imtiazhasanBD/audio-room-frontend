@@ -2,7 +2,15 @@
 
 import { motion } from "framer-motion";
 import clsx from "clsx";
-import { Mic, MicOff, Lock, User, CheckCircle, Hourglass, Crown } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Lock,
+  User,
+  CheckCircle,
+  Hourglass,
+  Crown,
+} from "lucide-react";
 import { Seat, Participant, API_BASE } from "../lib/api";
 import { getCurrentUser } from "../lib/auth";
 
@@ -14,6 +22,7 @@ type Props = {
   hostRemoveSeatUser?: (userId: string) => void;
   speakers?: Record<string, number>;
   participants?: Participant[];
+  seatGifs?: Record<number, { gifUrl: string; ts: number }>;
 };
 
 export function SeatGrid({
@@ -24,6 +33,7 @@ export function SeatGrid({
   hostRemoveSeatUser,
   speakers = {},
   participants = [],
+  seatGifs,
 }: Props) {
   const user = getCurrentUser();
   const userId = user?.id;
@@ -42,17 +52,16 @@ export function SeatGrid({
   }
 
   const getImageSrc = (src?: string) => {
-  if (!src) return "/avatar-placeholder.png";
+    if (!src) return "/avatar-placeholder.png";
 
-  // Absolute URL (Google, Facebook, etc.)
-  if (src.startsWith("http://") || src.startsWith("https://")) {
-    return src;
-  }
+    // Absolute URL (Google, Facebook, etc.)
+    if (src.startsWith("http://") || src.startsWith("https://")) {
+      return src;
+    }
 
-  // Relative URL (your backend)
-  return `https://meetalklive.com${src}`;
-};
-
+    // Relative URL (your backend)
+    return `https://meetalklive.com${src}`;
+  };
 
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
@@ -63,7 +72,9 @@ export function SeatGrid({
           const isHostSeat = seat.userId === hostId;
           const isEmpty = !seat.userId;
 
-          const participant = participants.find((p) => p.userId === seat.userId);
+          const participant = participants.find(
+            (p) => p.userId === seat.userId
+          );
           const isMuted = participant ? participant.muted : false;
 
           const rtcUid = participant?.rtcUid?.toString();
@@ -74,12 +85,16 @@ export function SeatGrid({
           const classes = clsx(
             "relative rounded-2xl w-36 h-32 border px-2 py-2 flex flex-col items-center justify-center text-xs sm:text-sm cursor-pointer transition-colors duration-300",
             {
-              "border-slate-700 bg-slate-900/60 hover:border-emerald-500/60": isEmpty && seat.mode === "FREE",
-              "border-yellow-400 bg-slate-900/70 hover:border-yellow-500": isEmpty && seat.mode === "REQUEST",
-              "border-red-500/60 bg-slate-900/80 opacity-70": seat.mode === "LOCKED",
+              "border-slate-700 bg-slate-900/60 hover:border-emerald-500/60":
+                isEmpty && seat.mode === "FREE",
+              "border-yellow-400 bg-slate-900/70 hover:border-yellow-500":
+                isEmpty && seat.mode === "REQUEST",
+              "border-red-500/60 bg-slate-900/80 opacity-70":
+                seat.mode === "LOCKED",
               "border-emerald-500/70 bg-emerald-500/10": isMine,
               "border-slate-700 bg-slate-900/90": !isMine && !isEmpty,
-              "shadow-[0_0_20px_-5px_rgba(52,211,153,0.45)] border-emerald-400": isSpeaking,
+              "shadow-[0_0_20px_-5px_rgba(52,211,153,0.45)] border-emerald-400":
+                isSpeaking,
             }
           );
 
@@ -97,13 +112,27 @@ export function SeatGrid({
               whileHover={{ scale: 1.02 }}
               layout
             >
+              {/* 🎬 SEAT GIF REACTION */}
+              {seatGifs?.[seat.index] && (
+                <motion.img
+                  key={seatGifs[seat.index].ts}
+                  src={seatGifs[seat.index].gifUrl}
+                  alt="reaction"
+                  className="absolute inset-0 m-auto w-20 h-20 pointer-events-none z-30"
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1.1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
+                />
+              )}
+
               {/* ⚙ Host Seat Settings Button */}
               {userId === hostId && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onClickSeatAsHost?.(seat.index);
-                    hostRemoveSeatUser?.(seat.user?.id?? '');
+                    hostRemoveSeatUser?.(seat.user?.id ?? "");
                   }}
                   className="absolute top-1 right-1 text-xs text-slate-400 hover:text-white"
                 >

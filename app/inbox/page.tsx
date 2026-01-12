@@ -39,16 +39,26 @@ interface Conversation {
   unreadCount: number;
 }
 
+interface ConversationsResponse {
+  conversations: Conversation[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 interface ConversationUpdatePayload {
   conversationId: string;
   lastMessage: {
-    id: string;
-    content: string;
-    createdAt: string;
-    type?: MessageType;
+    conversationId: string;
+    message: {
+      id: string;
+      content: string;
+      createdAt: string;
+      type?: MessageType;
+    };
   };
   unreadIncrement: number;
 }
+
 
 /* =========================
    COMPONENT
@@ -60,33 +70,54 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 🔥 Pagination state
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   /* =========================
      FETCH CONVERSATIONS
   ========================= */
-  useEffect(() => {
+  async function fetchConversations(loadMore = false) {
+    if (loadingMore || (!hasMore && loadMore)) return;
+
+    setLoadingMore(true);
+
     const token = getToken();
     if (!token) {
       router.replace("/login");
       return;
     }
 
-    fetch(`${API_BASE}/chat/conversations`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setConversations(data.filter(Boolean));
-        } else {
-          setConversations([]);
-        }
-      })
-      .catch(() => {
-        clearToken();
-        router.replace("/login");
-      })
-      .finally(() => setLoading(false));
-  }, [router]);
+    const params = new URLSearchParams({ limit: "20" });
+    if (loadMore && cursor) params.append("cursor", cursor);
+
+    const res = await fetch(
+      `${API_BASE}/chat/conversations?${params}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    const data: ConversationsResponse = await res.json();
+
+    setCursor(data.nextCursor);
+    setHasMore(data.hasMore);
+
+    setConversations((prev) =>
+      loadMore
+        ? [...prev, ...data.conversations]
+        : data.conversations,
+    );
+
+    setLoading(false);
+    setLoadingMore(false);
+  }
+
+  /* =========================
+     INITIAL LOAD
+  ========================= */
+  useEffect(() => {
+    fetchConversations(false);
+  }, []);
 
   /* =========================
      SOCKET SETUP
@@ -95,45 +126,39 @@ export default function InboxPage() {
     const socket = getChatSocket();
     socketRef.current = socket;
 
-    const onConversationUpdate = (data: ConversationUpdatePayload) => {
-      const msg = data?.lastMessage;
-      if (!msg || !msg.id) return;
+ const onConversationUpdate = (data: ConversationUpdatePayload) => {
+  const msg = data.lastMessage?.message;
+  if (!msg) return;
 
-      setConversations((prev) => {
-        if (!Array.isArray(prev)) return [];
+  setConversations((prev) => {
+    const existing = prev.find((c) => c.id === data.conversationId);
+    if (!existing) return prev;
 
-        return prev
-          .filter(Boolean)
-          .map((c) => {
-            if (!c || !c.id) return c;
-            if (c.id !== data.conversationId) return c;
-
-            return {
-              ...c,
-              lastMessage: {
-                id: msg.id,
-                content: msg.content,
-                createdAt: msg.createdAt,
-                type: msg.type,
-              },
-              lastMessageAt: msg.createdAt,
-              unreadCount: (c.unreadCount ?? 0) + (data.unreadIncrement ?? 0),
-            };
-          });
-      });
-    };
+    return [
+      {
+        ...existing,
+        lastMessage: {
+          id: msg.id,
+          content: msg.content,
+          createdAt: msg.createdAt,
+          type: msg.type,
+        },
+        lastMessageAt: msg.createdAt,
+        unreadCount:
+          (existing.unreadCount ?? 0) + (data.unreadIncrement ?? 0),
+      },
+      ...prev.filter((c) => c.id !== data.conversationId),
+    ];
+  });
+};
 
     const onPresenceOnline = ({ userId }: { userId: string }) => {
       setConversations((prev) =>
-        prev
-          .filter(Boolean)
-          .map((c) => {
-            if (!c?.otherUser || c.otherUser.id !== userId) return c;
-            return {
-              ...c,
-              otherUser: { ...c.otherUser, lastSeenAt: null },
-            };
-          }),
+        prev.map((c) =>
+          c.otherUser?.id === userId
+            ? { ...c, otherUser: { ...c.otherUser, lastSeenAt: null } }
+            : c,
+        ),
       );
     };
 
@@ -145,15 +170,11 @@ export default function InboxPage() {
       lastSeen: string;
     }) => {
       setConversations((prev) =>
-        prev
-          .filter(Boolean)
-          .map((c) => {
-            if (!c?.otherUser || c.otherUser.id !== userId) return c;
-            return {
-              ...c,
-              otherUser: { ...c.otherUser, lastSeenAt: lastSeen },
-            };
-          }),
+        prev.map((c) =>
+          c.otherUser?.id === userId
+            ? { ...c, otherUser: { ...c.otherUser, lastSeenAt: lastSeen } }
+            : c,
+        ),
       );
     };
 
@@ -183,7 +204,6 @@ export default function InboxPage() {
   function lastMessagePreview(c: Conversation) {
     if (!c.lastMessage) return "No messages yet";
     if (c.lastMessage.type === "IMAGE") return "🖼️ Photo";
-    if (c.lastMessage.type === "SYSTEM") return c.lastMessage.content;
     return c.lastMessage.content;
   }
 
@@ -200,7 +220,19 @@ export default function InboxPage() {
   ========================= */
   return (
     <div className="min-h-screen bg-[#0a0c10] px-4 py-8">
-      <div className="max-w-2xl mx-auto">
+      <div
+        className="max-w-2xl mx-auto"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (
+            el.scrollHeight - el.scrollTop === el.clientHeight &&
+            hasMore &&
+            !loadingMore
+          ) {
+            fetchConversations(true);
+          }
+        }}
+      >
         <h1 className="text-2xl font-bold text-white mb-6">Inbox</h1>
 
         <motion.div className="space-y-3">
@@ -211,8 +243,6 @@ export default function InboxPage() {
           )}
 
           {conversations.map((c) => {
-            if (!c) return null;
-
             const isGroup = c.type === "GROUP";
             const name = isGroup
               ? c.title ?? "Group"
@@ -223,11 +253,9 @@ export default function InboxPage() {
                 key={c.id}
                 onClick={() => {
                   setConversations((prev) =>
-                    prev
-                      .filter(Boolean)
-                      .map((x) =>
-                        x.id === c.id ? { ...x, unreadCount: 0 } : x,
-                      ),
+                    prev.map((x) =>
+                      x.id === c.id ? { ...x, unreadCount: 0 } : x,
+                    ),
                   );
                   router.push(`/inbox/${c.id}`);
                 }}
@@ -277,6 +305,12 @@ export default function InboxPage() {
               </button>
             );
           })}
+
+          {loadingMore && (
+            <div className="flex justify-center py-4">
+              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
         </motion.div>
       </div>
     </div>

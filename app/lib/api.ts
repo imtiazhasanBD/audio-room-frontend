@@ -245,8 +245,8 @@ export async function joinRoomApi(
 ): Promise<JoinRoomResult> {
   // controller: { success: true, data: { room, token } }
   const res = await api.post(`/audio-room/${roomId}/join`, pin ? { pin } : {});
-  console.log(res, "gggggggggggggggg")
-  return res.data.data as JoinRoomResult;
+  console.log(res.data.room.room, "gggggggggggggggg")
+  return res.data as JoinRoomResult;
 }
 
 export async function leaveRoomApi(roomId: string) {

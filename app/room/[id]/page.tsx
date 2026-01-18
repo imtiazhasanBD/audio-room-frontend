@@ -277,6 +277,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
     const joinAgora = async () => {
       try {
         const joined = await attemptJoinRoom();
+        console.log("jpinnnnnnnnn", joined)
         if (!joined) return; // room locked → wait for PIN
 
         if (unmounted) return;

@@ -127,6 +127,7 @@ export default function InboxPage() {
     socketRef.current = socket;
 
  const onConversationUpdate = (data: ConversationUpdatePayload) => {
+  console.log("updateeeeee", data)
   const msg = data.lastMessage?.message;
   if (!msg) return;
 

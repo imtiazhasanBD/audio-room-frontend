@@ -398,3 +398,32 @@ export async function unbanUserApi(roomId: string, userId: string) {
   // controller: { success: true, data: ... }
   await api.delete(`/audio-room/${roomId}/ban/${userId}`);
 }
+
+
+
+export async function fetchVideoRooms() {
+  const res = await api.get("/rooms/feed");
+
+  return res.data.items.map((r: any) => ({
+    id: r.roomId,
+    title: r.title,
+    image: r.image,
+    host: r.host,
+    participantCount: r.participantCount,
+    tag: r.tag,
+    isLive: r.isLive,
+  }));
+}
+
+export async function joinVideoRoomApi(roomId: string) {
+  const res = await api.post(`/video-room/${roomId}/join`);
+  return res.data as {
+    room: any;
+    token: {
+      token: string;
+      uid: number;
+      expiresAt: string;
+    };
+  };
+}
+

@@ -82,7 +82,7 @@ export default function RoomPage() {
   const user = getCurrentUser();
   const userId = user?.id;
 
-  const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
+const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
   const API_BASE = process.env.NEXT_PUBLIC_API!;
 
   // -----------------------
@@ -296,7 +296,7 @@ export default function RoomPage() {
 
         clientRef.current = client;
         setAgoraClient(client);
-
+console.log("joined", joined)
         await client.join(
           AGORA_APP_ID,
           `room_${roomId}`,

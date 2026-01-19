@@ -427,3 +427,13 @@ export async function joinVideoRoomApi(roomId: string) {
   };
 }
 
+export async function fetchMyRoom() {
+  const res = await api.get("/video-room/my/room");
+  console.log(res)
+  return res.data; // null or room
+}
+
+export async function fetchLiveRooms() {
+  const res = await api.get("/rooms/feed");
+  return res.data; // array
+}

@@ -429,7 +429,7 @@ export async function joinVideoRoomApi(roomId: string) {
 
 export async function fetchMyRoom() {
   const res = await api.get("/video-room/my/room");
-  console.log(res)
+  console.log("myroom", res)
   return res.data; // null or room
 }
 

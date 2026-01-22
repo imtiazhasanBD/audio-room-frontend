@@ -427,6 +427,18 @@ export async function joinVideoRoomApi(roomId: string) {
   };
 }
 
+export async function goLiveVideoRoomApi() {
+  const res = await api.post(`/video-room/go-live`);
+  return res.data as {
+    room: any;
+    token: {
+      token: string;
+      uid: number;
+      expiresAt: string;
+    };
+  };
+}
+
 export async function fetchMyRoom() {
   const res = await api.get("/video-room/my/room");
   console.log("myroom", res)

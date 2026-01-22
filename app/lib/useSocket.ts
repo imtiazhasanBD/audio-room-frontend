@@ -1,34 +1,23 @@
-"use client";
-
-import { useEffect, useRef } from "react";
+// app/lib/useVideoSocket.ts
 import { io, Socket } from "socket.io-client";
-import { getToken } from "@/app/lib/auth";
+import { getToken } from "./auth";
+import { API_BASE } from "./api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API!;
+let videoSocket: Socket | null = null;
 
-export function useSocket(): Socket | null {
-  const socketRef = useRef<Socket | null>(null);
+export function useVideoSocket(roomId: string, userId?: string) {
+  if (!roomId || !userId) return null;
 
-  useEffect(() => {
-    const token = getToken();
-    console.log(token)
-    if (!token) return; // ⛔ WAIT FOR TOKEN
+  if (!videoSocket) {
+    videoSocket = io(
+      `${API_BASE}/video-room`,
+      {
+        auth: { token: getToken() },
+        query: { roomId, userId },
+        transports: ["websocket"],
+      }
+    );
+  }
 
-    if (socketRef.current) return;
-
-    const s = io(API_BASE, {
-      auth: { token },
-      transports: ["websocket"],
-      reconnection: true,
-    });
-
-    socketRef.current = s;
-
-    return () => {
-      s.disconnect();
-      socketRef.current = null;
-    };
-  }, []);
-
-  return socketRef.current;
+  return videoSocket;
 }

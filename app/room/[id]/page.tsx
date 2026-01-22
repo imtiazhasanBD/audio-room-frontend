@@ -571,7 +571,7 @@ console.log("joined", joined)
 
     println("🔌 Connecting WS...");
 
-    const s = io(API_BASE, {
+    const s = io(`${API_BASE}/video-room`, {
       auth: { token: getToken() },
       query: { roomId, userId },
       transports: ["websocket"],

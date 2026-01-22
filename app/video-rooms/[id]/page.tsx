@@ -59,6 +59,33 @@ export default function VideoRoomJoinPage() {
       setCoHosts(data);
     });
 
+        socket.on("VIDEO_ROOM_UPDATED", (data: any[]) => {
+      console.log("room updated:", data);
+      setRoom(data);
+    });
+
+            socket.on("VIDEO_ROOM_ENDED", (data: any[]) => {
+      console.log("VIDEO_ROOM_ENDED:", data);
+
+    });
+
+                socket.on("VIDEO_PUBLISHER_ADDED", (data: any[]) => {
+      console.log("VIDEO_PUBLISHER_ADDED:", data);
+
+    });
+
+
+                socket.on("VIDEO_PUBLISHER_LEAVE", (data: any[]) => {
+      console.log("VIDEO_PUBLISHER_LEAVE:", data);
+
+    });
+                socket.on("VIDEO_REMOVED_COHOST", (data: any[]) => {
+      console.log("VIDEO_REMOVED_COHOST:", data);
+
+    });
+
+
+
     // Handle when *I* am promoted to Co-Host
     socket.on("VIDEO_PUBLISHER_ADDED", async () => {
       console.log("I became a publisher/co-host");
@@ -99,6 +126,7 @@ export default function VideoRoomJoinPage() {
     if (!socket || !isHost) return;
 
     const handler = ({ request }: any) => {
+      console.log(request)
       if (confirm(`User ${request.nickName || request.userId} wants to cohost. Approve?`)) {
         socket.emit("VIDEO_COHOST_APPROVE", {
           roomId,

@@ -449,3 +449,78 @@ export async function fetchLiveRooms() {
   const res = await api.get("/rooms/feed");
   return res.data; // array
 }
+
+export async function approveCohostApi(
+  roomId: string,
+  requestId: string
+) {
+  const res = await api.post(
+    `/video-room/${roomId}/cohost/approve/${requestId}`
+  );
+
+  return res.data as {
+    rtc: {
+      token: string;
+      uid: number;
+      expiresAt: string;
+    };
+    cohost: any;
+  };
+}
+
+
+export async function removeCohostApi(
+  roomId: string,
+  targetUserId: string
+) {
+  const res = await api.post(
+    `/video-room/${roomId}/cohost/remove/${targetUserId}`
+  );
+
+  return res.data as {
+    success: boolean;
+    removedUserId: string;
+  };
+}
+
+
+export async function leaveCohostApi(roomId: string) {
+  const res = await api.post(
+    `/video-room/${roomId}/cohost/leave`
+  );
+
+  return res.data as {
+    success: boolean;
+  };
+}
+
+
+// Host → End Live
+export async function endLiveVideoRoomApi() {
+  const res = await api.post(`/video-room/end-live`);
+  return res.data as {
+    success: boolean;
+  };
+}
+
+// Viewer / Co-host → Leave Room
+export async function leaveVideoRoomApi(roomId: string) {
+  const res = await api.post(`/video-room/${roomId}/leave`);
+  return res.data as {
+    success: boolean;
+  };
+}
+
+
+export async function requestCohostApi(roomId: string) {
+  const res = await api.post(
+    `/video-room/${roomId}/cohost/request`
+  );
+
+  return res.data as {
+    success: boolean;
+    requestId: string;
+  };
+}
+
+

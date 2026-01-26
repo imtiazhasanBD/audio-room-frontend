@@ -333,6 +333,7 @@ export default function ChatBox({ socket }: any) {
     if (!socket) return;
 
     const onChatMessage = (msg: ChatMessage) => {
+      console.log("message", msg)
       setMessages((prev) => [...prev, { ...msg, type: "CHAT" }]);
     };
 

@@ -10,6 +10,7 @@ import AgoraRTC, {
 } from "agora-rtc-sdk-ng";
 import {
   approveCohostApi,
+  chatMode,
   endLiveVideoRoomApi,
   goLiveVideoRoomApi,
   joinVideoRoomApi,
@@ -19,6 +20,7 @@ import {
 import { useVideoSocket } from "@/app/lib/useSocket";
 import { getCurrentUser } from "@/app/lib/auth";
 import CoHostGrid from "@/app/components/CoHostGrid";
+import ChatBox from "@/app/components/ChatBox";
 
 export default function VideoRoomJoinPage() {
   const { id: roomId } = useParams<{ id: string }>();
@@ -51,6 +53,9 @@ export default function VideoRoomJoinPage() {
   const [forcedMuted, setForcedMuted] = useState(false);
   const [forcedVideoOff, setForcedVideoOff] = useState(false);
   const [activeSpeakers, setActiveSpeakers] = useState<(string | number)[]>([]);
+  const [chatMode, setChatMode] = useState<chatMode | null>(
+    room?.chatMode ?? null,
+  );
 
   // 1. NEW: Store all remote video tracks here (Key = Agora UID)
   const [remoteTracks, setRemoteTracks] = useState<
@@ -447,46 +452,62 @@ export default function VideoRoomJoinPage() {
           </button>
         </div>
       )}
+      <div className="flex gap-6 max-w-6xl mx-auto mt-12 border-t border-gray-800 pt-6 h-[500px]">
+        {/* CHAT */}
+        <div className="flex-1 min-w-0">
+          {socket && (
+            <ChatBox
+              socket={socket}
+              roomId={roomId}
+              canControl={isHost}
+              currentUserId={user?.id}
+              chatMode={chatMode}
+            />
+          )}
+        </div>
 
-      {/* --- 4. PARTICIPANTS LIST --- */}
-      <div className="max-w-6xl mx-auto mt-12 border-t border-gray-800 pt-6">
-        <h3 className="font-bold mb-4 text-lg">
-          Participants ({participants.length})
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {participants.map((p) => (
-            <div
-              key={p.id}
-              className="flex justify-between items-center text-sm p-3 bg-gray-900/50 rounded-lg hover:bg-gray-900 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-300">
-                  {p.user?.nickName?.[0] || "?"}
+        {/* PARTICIPANTS */}
+        <div className="w-56 flex-shrink-0">
+          <h3 className="font-bold mb-4 text-lg">
+            Participants ({participants.length})
+          </h3>
+
+          <div className="flex flex-col gap-3 max-h-full overflow-y-auto pr-2">
+            {participants.map((p) => (
+              <div
+                key={p.id}
+                className="flex justify-between items-center text-sm p-3 bg-gray-900/50 rounded-lg hover:bg-gray-900 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-300">
+                    {p.user?.nickName?.[0] || "?"}
+                  </div>
+                  <span className="font-medium text-gray-300">
+                    {p.user?.nickName || "User"}
+                  </span>
                 </div>
-                <span className="font-medium text-gray-300">
-                  {p.user?.nickName || "User"}
+
+                <span
+                  className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider ${
+                    p.role === "HOST"
+                      ? "bg-pink-500/10 text-pink-400 border border-pink-500/20"
+                      : p.isPublisher
+                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                        : "bg-gray-800 text-gray-500 border border-gray-700"
+                  }`}
+                >
+                  {p.role === "HOST"
+                    ? "HOST"
+                    : p.isPublisher
+                      ? "CO-HOST"
+                      : "VIEWER"}
                 </span>
               </div>
-
-              <span
-                className={`text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider ${
-                  p.role === "HOST"
-                    ? "bg-pink-500/10 text-pink-400 border border-pink-500/20"
-                    : p.isPublisher
-                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                      : "bg-gray-800 text-gray-500 border border-gray-700"
-                }`}
-              >
-                {p.role === "HOST"
-                  ? "HOST"
-                  : p.isPublisher
-                    ? "CO-HOST"
-                    : "VIEWER"}
-              </span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
+
       {pendingRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur">
           <div className="bg-gray-900 text-white rounded-xl p-6 w-full max-w-sm shadow-xl">

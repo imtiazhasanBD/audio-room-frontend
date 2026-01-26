@@ -299,7 +299,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
         setAgoraClient(client);
 console.log("joined", joined)
         await client.join(
-          `${API_BASE}/audio-room`,
+          `${API_BASE}`,
           `room_${roomId}`,
           joined.token.token || null,
           joined.token.uid
@@ -571,7 +571,7 @@ console.log("joined", joined)
 
     println("🔌 Connecting WS...");
 
-    const s = io(`${API_BASE}`, {
+    const s = io(`${API_BASE}/audio-room`, {
       auth: { token: getToken() },
       query: { roomId, userId },
       transports: ["websocket"],

@@ -124,8 +124,33 @@ export default function VideoRoomJoinPage() {
     });
 
     socket.on("VIDEO_ACTION_VIDEO_ON", () => {
-      console.log("VIDEO_ACTION_VIDEO_ON")
+      console.log("VIDEO_ACTION_VIDEO_ON");
       setForcedVideoOff(false);
+    });
+
+    socket.on("VIDEO_TOGGLE_ACTION", ({ userId, action }) => {
+      console.log("VIDEO_TOGGLE_ACTION", userId, action);
+      if (userId !== user?.id) return;
+
+      if (action === "MUTE") {
+        localTracksRef.current.audio?.setEnabled(false);
+        setForcedMuted(true);
+      }
+
+      if (action === "UNMUTE") {
+        localTracksRef.current.audio?.setEnabled(true);
+        setForcedMuted(false);
+      }
+
+      if (action === "VIDEO_OFF") {
+        localTracksRef.current.video?.setEnabled(false);
+        setForcedVideoOff(true);
+      }
+
+      if (action === "VIDEO_ON") {
+        localTracksRef.current.video?.setEnabled(true);
+        setForcedVideoOff(false);
+      }
     });
 
     socket.on("VIDEO_ROOM_ENDED", (data: any[]) => {
@@ -230,14 +255,14 @@ export default function VideoRoomJoinPage() {
         res.token.token,
         res.token.uid,
       );
-     client.enableAudioVolumeIndicator();
-     client.on("volume-indicator", (volumes) => {
-  const speaking = volumes
-    .filter(v => v.level > 5) // adjust sensitivity
-    .map(v => v.uid);
+      client.enableAudioVolumeIndicator();
+      client.on("volume-indicator", (volumes) => {
+        const speaking = volumes
+          .filter((v) => v.level > 5) // adjust sensitivity
+          .map((v) => v.uid);
 
-  setActiveSpeakers(speaking);
-});
+        setActiveSpeakers(speaking);
+      });
 
       setLoading(false);
 
@@ -320,14 +345,14 @@ export default function VideoRoomJoinPage() {
   };
 
   const unmuteSelf = async () => {
-    localTracksRef.current.audio?.setEnabled(true);
-    socket?.emit("VIDEO_USER_UNMUTED", { roomId });
+    // localTracksRef.current.audio?.setEnabled(true);
+    socket?.emit("VIDEO_USER_TOGGLE", { roomId, action: "UNMUTE" });
   };
 
   const enableVideoSelf = async () => {
-    localTracksRef.current.video?.setEnabled(true);
-    setForcedVideoOff(false);
-    socket?.emit("VIDEO_USER_VIDEO_ON", { roomId });
+    // localTracksRef.current.video?.setEnabled(true);
+    //   setForcedVideoOff(false);
+    socket?.emit("VIDEO_USER_TOGGLE", { roomId, action: "VIDEO_ON" });
   };
 
   // Determine which track belongs to the Main Host
@@ -408,7 +433,6 @@ export default function VideoRoomJoinPage() {
           localVideoTrack={!isHost ? localVideoTrack : undefined}
           videoOff={forcedVideoOff}
           muted={forcedMuted}
-          
         />
       </div>
 

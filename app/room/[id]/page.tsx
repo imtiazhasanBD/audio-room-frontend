@@ -299,7 +299,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
         setAgoraClient(client);
 console.log("joined", joined)
         await client.join(
-          AGORA_APP_ID,
+          `${API_BASE}/audio-room`,
           `room_${roomId}`,
           joined.token.token || null,
           joined.token.uid

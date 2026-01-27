@@ -26,3 +26,13 @@ body {
 .badge {
   @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-200;
 }
+
+@keyframes shimmer {
+  0% { background-position: 0 0; }
+  100% { background-position: 40px 0; }
+}
+
+.animate-shimmer {
+  background-size: 20px 20px;
+  animation: shimmer 2s linear infinite;
+}

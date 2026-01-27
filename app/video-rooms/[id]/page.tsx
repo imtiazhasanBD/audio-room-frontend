@@ -16,6 +16,7 @@ import {
   joinVideoRoomApi,
   leaveVideoRoomApi,
   requestCohostApi,
+  respondPkInviteApi,
 } from "@/app/lib/api";
 import { useVideoSocket } from "@/app/lib/useSocket";
 import { getCurrentUser } from "@/app/lib/auth";
@@ -44,6 +45,7 @@ export default function VideoRoomJoinPage() {
   const [participants, setParticipants] = useState<any[]>([]);
   const [coHosts, setCoHosts] = useState<any[]>([]);
   const [rtcUid, setRtcUid] = useState<any>(null);
+  const [hostRtcUid, setHostRtcUid] = useState<any>(null);
   console.log("room", room);
   const isHost = room?.hostId === user?.id;
   console.log("isHost", isHost);
@@ -59,13 +61,20 @@ export default function VideoRoomJoinPage() {
 
   // 1. NEW: Store all remote video tracks here (Key = Agora UID)
   const [remoteTracks, setRemoteTracks] = useState<
-    Record<string, IRemoteVideoTrack>
+    Record<number, IRemoteVideoTrack>
   >({});
 
   // 2. NEW: State to trigger re-render for local video (since Ref changes don't trigger render)
   const [localVideoTrack, setLocalVideoTrack] = useState<
     ICameraVideoTrack | undefined
   >(undefined);
+
+  /* ===================== PK STATE ===================== */
+  // --- PK State ---
+  const [pkBattle, setPkBattle] = useState<any | null>(null);
+  const [pkScore, setPkScore] = useState({ scoreA: 0, scoreB: 0 });
+  const [pkTimer, setPkTimer] = useState(0);
+  const isPkHost = pkBattle && Number(pkBattle.myRtcUid) === Number(rtcUid);
 
   /* ---------------- SOCKET LOGIC ---------------- */
   const socket = useVideoSocket(roomId, user?.id);
@@ -174,12 +183,87 @@ export default function VideoRoomJoinPage() {
       router.push("/video-rooms");
     });
 
+    /* ---------- PK ---------- */
+
+    socket.on("PK_INVITE", (data) => {
+      // data contains: pkId, fromRoomId, fromHost (full user object from your backend)
+      setPendingRequest({
+        ...data,
+        isPk: true,
+        user: data.fromHost, // Map the host data so the UI can show their avatar/name
+      });
+
+      // Optional: Play a "challenge" sound effect
+      const audio = new Audio("/sounds/challenge.mp3");
+      audio.play();
+    });
+
+    socket.on("PK_STARTED", async (data) => {
+      setPkBattle(data);
+      console.log("pkkkk-start", data);
+      if (!clientRef.current) return;
+
+      const config = AgoraRTC.createChannelMediaRelayConfiguration();
+
+      config.setSrcChannelInfo({
+        channelName: `room_${data.myRoomId}`,
+        uid: Number(data.myRtcUid), // ✅ convert
+        token: "",
+      });
+
+      config.addDestChannelInfo({
+        channelName: `room_${data.opponentRoomId}`,
+        uid: 0, // ✅ convert
+        token: data.relayToken,
+      });
+      if (clientRef.current.connectionState !== "CONNECTED") {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (isPkHost) {
+        await clientRef.current.unpublish(); // 🔥 unpublish local
+      }
+
+      await clientRef.current.startChannelMediaRelay(config);
+    });
+
+    socket.on("VIDEO_FORCE_UNPUBLISH", async () => {
+      if (!clientRef.current) return;
+
+      await clientRef.current.unpublish();
+
+      localTracksRef.current.video?.setEnabled(false);
+      localTracksRef.current.audio?.setEnabled(false); // 🔥 add
+    });
+
+    socket.on("PK_SCORE", (data) => {
+      setPkScore({ scoreA: data.scoreA, scoreB: data.scoreB });
+    });
+
+    socket.on("PK_ENDED", async () => {
+      await clientRef.current?.stopChannelMediaRelay();
+
+      if (isHost) {
+        const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
+        localTracksRef.current.audio = mic;
+        localTracksRef.current.video = cam;
+        setLocalVideoTrack(cam);
+        await clientRef.current?.publish([mic, cam]);
+      }
+
+      setPkBattle(null);
+      setPkScore({ scoreA: 0, scoreB: 0 });
+    });
+
     return () => {
       socket.emit("room.leave", { roomId });
       socket.off("VIDEO_PARTICIPANTS_UPDATED");
       socket.off("VIDEO_COHOSTS_UPDATED");
       socket.off("VIDEO_PUBLISHER_ADDED");
       socket.off("VIDEO_LEAVE");
+      socket.off("PK_INVITE");
+      socket.off("PK_STARTED");
+      socket.off("PK_SCORE");
+      socket.off("PK_ENDED");
     };
   }, [socket, roomId]);
 
@@ -217,11 +301,14 @@ export default function VideoRoomJoinPage() {
         ? goLiveVideoRoomApi()
         : joinVideoRoomApi(roomId));
       setRoom(res.room);
+      setHostRtcUid(res.room.hostRtcUid);
       setRtcUid(res.token.uid);
       setCoHosts(res.room.coHosts || []);
 
       // 2. Init Agora Client
       const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+      // 🔥 enable dual stream BEFORE join
+      await client.enableDualStream();
       clientRef.current = client;
 
       await client.setClientRole(isHost ? "host" : "audience");
@@ -247,7 +334,7 @@ export default function VideoRoomJoinPage() {
           // Remove from State
           setRemoteTracks((prev) => {
             const newTracks = { ...prev };
-            delete newTracks[remoteUser.uid];
+            delete newTracks[Number(remoteUser.uid)];
             return newTracks;
           });
         }
@@ -298,6 +385,22 @@ export default function VideoRoomJoinPage() {
       joiningRef.current = false;
     }
   }
+  useEffect(() => {
+    if (!pkBattle) return;
+    setPkTimer(pkBattle.duration);
+
+    const i = setInterval(() => {
+      setPkTimer((t) => {
+        if (t <= 1) {
+          clearInterval(i);
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(i);
+  }, [pkBattle]);
 
   /* ---------------- RENDER HELPERS ---------------- */
 
@@ -359,14 +462,30 @@ export default function VideoRoomJoinPage() {
     //   setForcedVideoOff(false);
     socket?.emit("VIDEO_USER_TOGGLE", { roomId, action: "VIDEO_ON" });
   };
+  const approvePkRequest = async () => {
+    if (!pendingRequest) return;
+    try {
+      setApproving(true);
 
+      // Check if this is a PK Invite based on the presence of pkId
+      if (pendingRequest.pkId) {
+        await respondPkInviteApi(pendingRequest.pkId, "ACCEPT");
+      } else {
+        await approveCohostApi(roomId, pendingRequest.id);
+      }
+
+      setPendingRequest(null);
+    } catch (err) {
+      console.error("Approval failed:", err);
+      alert("Action failed");
+    } finally {
+      setApproving(false);
+    }
+  };
   // Determine which track belongs to the Main Host
   // Logic: If I am host, use local. If I am viewer, use remote track matching room.hostRtcUid
-  const hostVideoTrack = isHost
-    ? localVideoTrack
-    : rtcUid
-      ? remoteTracks[rtcUid]
-      : undefined;
+  const hostVideoTrack = isHost ? localVideoTrack : remoteTracks[hostRtcUid];
+
   console.log(hostVideoTrack);
   if (loading || !room) {
     return (
@@ -401,22 +520,113 @@ export default function VideoRoomJoinPage() {
       </div>
 
       {/* --- 1. MAIN STAGE (HOST ONLY) --- */}
-      <div className="flex justify-center mb-6">
-        <div className="w-full max-w-3xl aspect-video bg-gray-900 rounded-xl overflow-hidden border border-gray-800 relative shadow-2xl">
-          <AgoraPlayer videoTrack={hostVideoTrack} cover={room.coverImage} />
+      {/* --- PK BATTLE STAGE --- */}
 
-          {/* Host Badge */}
-          <div className="absolute top-4 left-4 bg-red-600 px-3 py-1 text-xs font-bold rounded-full text-white z-10 shadow-sm">
-            HOST
-          </div>
-
-          {/* Fallback Text */}
-          {!hostVideoTrack && (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-500 font-medium">
-              Waiting for host video...
+      <div className="flex flex-col w-full max-w-5xl mx-auto px-2">
+        {pkBattle ? (
+          <div className="relative group">
+            {/* 1. FLOATING NEON TIMER */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
+              <div className="bg-blue-950/40 backdrop-blur-xl px-5 py-2 rounded-2xl border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.2)] flex items-center gap-3">
+                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_#22d3ee]" />
+                <span className="text-sm font-black text-cyan-100 tabular-nums tracking-[0.15em]">
+                  {Math.floor(pkTimer / 60)}:
+                  {(pkTimer % 60).toString().padStart(2, "0")}
+                </span>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* 2. THE CYBER SCORE BAR */}
+            <div className="relative w-full h-14 bg-slate-950 rounded-t-[2rem] border-t border-x border-blue-500/20 overflow-hidden flex items-center">
+              {/* Team A Progress (Electric Blue) */}
+              <div
+                className="h-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 transition-all duration-1000 ease-out relative"
+                style={{
+                  width: `${(pkScore.scoreA / (pkScore.scoreA + pkScore.scoreB || 1)) * 100}%`,
+                }}
+              >
+                {/* Scanline Animation Effect */}
+                <div className="absolute inset-0 bg-[linear-gradient(to_right,transparent_0%,rgba(255,255,255,0.3)_50%,transparent_100%)] w-20 -translate-x-full animate-[shimmer_2s_infinite]" />
+              </div>
+
+              {/* Team B Progress (Deep Indigo Contrast) */}
+              <div className="flex-1 h-full bg-indigo-950 transition-all duration-700 ease-out" />
+
+              {/* Score Text Overlays */}
+              <div className="absolute inset-0 flex justify-between items-center px-8 pointer-events-none">
+                <div className="flex flex-col">
+                  <span className="text-white font-black text-2xl tracking-tighter drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]">
+                    {pkScore.scoreA.toLocaleString()}
+                  </span>
+                  <span className="text-[9px] text-blue-300 font-bold uppercase tracking-[0.3em] opacity-70">
+                    Blue Unit
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <div className="bg-blue-600 text-white font-black italic text-xs px-5 py-1 rounded-sm skew-x-[-12deg] shadow-[4px_4px_0px_#000] border border-cyan-300">
+                    VS
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end">
+                  <span className="text-white font-black text-2xl tracking-tighter drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]">
+                    {pkScore.scoreB.toLocaleString()}
+                  </span>
+                  <span className="text-[9px] text-indigo-300 font-bold uppercase tracking-[0.3em] opacity-70">
+                    Indigo Unit
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. VIDEO GRID WITH "ACTIVE" OVERLAYS */}
+            <div className="grid grid-cols-2 aspect-video bg-slate-950 rounded-b-[2rem] overflow-hidden border-b border-x border-blue-500/20 shadow-2xl relative">
+              {/* Player Left (Me) */}
+              <div
+                className={`relative transition-all duration-500 ${pkScore.scoreA >= pkScore.scoreB ? "after:absolute after:inset-0 after:bg-blue-500/10 after:border-4 after:border-blue-400 after:pointer-events-none" : "opacity-80"}`}
+              >
+                <AgoraPlayer videoTrack={remoteTracks[pkBattle.myRtcUid]} />
+
+                <div className="absolute bottom-5 left-5 flex items-center gap-3">
+                  <div className="bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded border-l-4 border-cyan-300 uppercase tracking-widest shadow-lg">
+                    YOU
+                  </div>
+                </div>
+              </div>
+
+              {/* Player Right (Opponent) */}
+              <div
+                className={`relative bg-slate-900 transition-all duration-500 ${pkScore.scoreB > pkScore.scoreA ? "after:absolute after:inset-0 after:bg-indigo-500/10 after:border-4 after:border-indigo-400 after:pointer-events-none" : "opacity-80"}`}
+              >
+                <AgoraPlayer
+                  videoTrack={remoteTracks[pkBattle.opponentRtcUid]}
+                />
+                <div className="absolute bottom-5 right-5 flex items-center gap-3 flex-row-reverse">
+                  <div className="bg-slate-800 text-slate-300 text-[10px] font-black px-3 py-1.5 rounded border-r-4 border-indigo-500 uppercase tracking-widest">
+                    OPPONENT
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Standard View with a Neon Blue Frame */
+          <div className="relative group p-[1px] rounded-[2.5rem] bg-gradient-to-b from-blue-500/40 to-transparent shadow-2xl">
+            <div className="w-full aspect-video bg-slate-950 rounded-[2.4rem] overflow-hidden relative">
+              <AgoraPlayer
+                videoTrack={hostVideoTrack}
+                cover={room.coverImage}
+              />
+              <div className="absolute top-6 left-6 flex items-center bg-blue-600/20 backdrop-blur-md px-4 py-1.5 rounded-lg border border-blue-400/30">
+                <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping mr-2.5" />
+                <span className="text-[11px] font-black text-blue-50 uppercase tracking-widest">
+                  Live Stream
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* --- 2. CO-HOST GRID --- */}
@@ -561,6 +771,66 @@ export default function VideoRoomJoinPage() {
               📷 Turn Camera On
             </button>
           )}
+        </div>
+      )}
+
+      {pendingRequest?.isPk && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="relative bg-gradient-to-b from-gray-900 to-black border border-yellow-500/50 rounded-3xl p-8 w-full max-w-sm shadow-[0_0_50px_rgba(234,179,8,0.2)] text-center">
+            {/* Animated VS Header */}
+            <div className="flex justify-center items-center gap-4 mb-6">
+              <div className="relative">
+                <img
+                  src={user?.username}
+                  className="w-16 h-16 rounded-full border-2 border-blue-500"
+                  alt="You"
+                />
+              </div>
+              <div className="text-2xl font-black italic text-yellow-500 animate-pulse">
+                VS
+              </div>
+              <div className="relative">
+                <img
+                  src={pendingRequest.user?.profilePicture}
+                  className="w-16 h-16 rounded-full border-2 border-red-500"
+                  alt="Challenger"
+                />
+              </div>
+            </div>
+
+            <h2 className="text-xl font-bold text-white mb-1">PK CHALLENGE!</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              <span className="text-white font-semibold">
+                {pendingRequest.user?.nickName}
+              </span>{" "}
+              has challenged you to a battle.
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={approvePkRequest}
+                disabled={approving}
+                className="w-full py-4 bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-400 hover:to-orange-500 text-black font-black rounded-xl transition-all transform active:scale-95 shadow-lg"
+              >
+                {approving ? "PREPARING BATTLE..." : "ACCEPT CHALLENGE"}
+              </button>
+
+              <button
+                onClick={() => setPendingRequest(null)}
+                className="w-full py-3 bg-white/5 hover:bg-white/10 text-gray-400 font-semibold rounded-xl transition-colors"
+              >
+                Decline
+              </button>
+            </div>
+
+            {/* Auto-decline timer bar */}
+            <div className="absolute bottom-0 left-0 h-1 bg-yellow-500/30 w-full overflow-hidden rounded-b-3xl">
+              <div
+                className="h-full bg-yellow-500 animate-shrink-width"
+                style={{ animationDuration: "15s" }}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

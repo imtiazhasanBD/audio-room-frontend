@@ -82,7 +82,7 @@ export default function RoomPage() {
   const user = getCurrentUser();
   const userId = user?.id;
 
-const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
+  const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
   const API_BASE = process.env.NEXT_PUBLIC_API!;
 
   // -----------------------
@@ -93,7 +93,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
   const [socket, setSocket] = useState<Socket | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [chatMode, setChatMode] = useState<chatMode | null>(
-    room?.chatMode ?? null
+    room?.chatMode ?? null,
   );
   const [seatGifs, setSeatGifs] = useState<
     Record<number, { gifUrl: string; ts: number }>
@@ -111,7 +111,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
   const [modeModalOpen, setModeModalOpen] = useState(false);
   const [seatApprovalOpen, setSeatApprovalOpen] = useState(false);
   const [selectedSeatIndex, setSelectedSeatIndex] = useState<number | null>(
-    null
+    null,
   );
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinError, setPinError] = useState("");
@@ -139,6 +139,10 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
   const opLockRef = useRef(false);
 
   const rtcOpLockRef = useRef(false);
+
+  const [musicPlaying, setMusicPlaying] = useState(false);
+const musicTrackRef = useRef<ILocalAudioTrack | null>(null);
+const audioElemRef = useRef<HTMLAudioElement | null>(null);
 
   const println = (m: string) =>
     setLog((prev) => [
@@ -277,7 +281,7 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
     const joinAgora = async () => {
       try {
         const joined = await attemptJoinRoom();
-        console.log("jpinnnnnnnnn", joined)
+        console.log("jpinnnnnnnnn", joined);
         if (!joined) return; // room locked → wait for PIN
 
         if (unmounted) return;
@@ -297,12 +301,12 @@ const AGORA_APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID!;
 
         clientRef.current = client;
         setAgoraClient(client);
-console.log("joined", joined)
+        console.log("joined", joined);
         await client.join(
           `${API_BASE}`,
           `room_${roomId}`,
           joined.token.token || null,
-          joined.token.uid
+          joined.token.uid,
         );
         await subscribeAll(client);
         let mic = trackRef.current;
@@ -334,7 +338,7 @@ console.log("joined", joined)
           setSpeakers((prev) => {
             const next = { ...prev };
             levels.forEach((l: any) =>
-              l.level > 5 ? (next[l.uid] = l.level) : delete next[l.uid]
+              l.level > 5 ? (next[l.uid] = l.level) : delete next[l.uid],
             );
             return next;
           });
@@ -389,6 +393,62 @@ console.log("joined", joined)
       socket?.emit("user.micOff", { roomId, userId });
     }
   }
+
+
+async function toggleMusic(fileUrl: string) {
+  const client = clientRef.current;
+  if (!client) return;
+
+  if (musicPlaying && musicTrackRef.current) {
+    // ... (keep your existing stop logic)
+    musicTrackRef.current.stop();
+    musicTrackRef.current.close();
+    await client.unpublish([musicTrackRef.current]);
+    musicTrackRef.current = null;
+    setMusicPlaying(false);
+    return;
+  }
+
+  try {
+    const audio = new Audio(fileUrl);
+    audio.crossOrigin = "anonymous";
+
+    // 1. Wait for the audio to be ready to play
+    await new Promise((resolve) => {
+      audio.oncanplaythrough = resolve;
+      audio.load();
+    });
+
+    // 2. Capture the stream correctly
+    const stream = (audio as any).captureStream 
+      ? (audio as any).captureStream() 
+      : (audio as any).mozCaptureStream();
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      throw new Error("No audio tracks found in the selected file.");
+    }
+
+    // 3. Use the global AgoraRTC or the imported version
+    const musicTrack = await (window as any).AgoraRTC.createCustomAudioTrack({
+      mediaStreamTrack: audioTracks[0],
+    });
+
+    await client.setClientRole("host");
+    await client.publish([musicTrack]);
+    
+    // Start playback
+    await audio.play();
+    
+    musicTrackRef.current = musicTrack;
+    setMusicPlaying(true);
+    println("🎵 Music playing successfully");
+
+  } catch (err) {
+    console.error("Music Error:", err);
+    println("❌ Music error: Check console");
+  }
+}
 
   // -----------------------
   // Next part (Seat logic + Socket + UI)
@@ -464,10 +524,12 @@ console.log("joined", joined)
           ? {
               ...prev,
               seats: prev.seats.map((s) =>
-                s.userId === targetUser ? { ...s, userId: null, user: null } : s
+                s.userId === targetUser
+                  ? { ...s, userId: null, user: null }
+                  : s,
               ),
             }
-          : prev
+          : prev,
       );
 
       println("🚨 User kicked");
@@ -606,13 +668,13 @@ console.log("joined", joined)
     // Someone turned mic ON/OFF
     s.on("user.micOn", ({ userId: target }) => {
       setParticipants((p) =>
-        p.map((x) => (x.userId === target ? { ...x, muted: false } : x))
+        p.map((x) => (x.userId === target ? { ...x, muted: false } : x)),
       );
     });
 
     s.on("user.micOff", ({ userId: target }) => {
       setParticipants((p) =>
-        p.map((x) => (x.userId === target ? { ...x, muted: true } : x))
+        p.map((x) => (x.userId === target ? { ...x, muted: true } : x)),
       );
     });
 
@@ -805,8 +867,8 @@ console.log("joined", joined)
             {mySeat?.micOn === false
               ? "Muted by Host"
               : !micOn
-              ? "Mic ON"
-              : "Mic OFF"}
+                ? "Mic ON"
+                : "Mic OFF"}
           </button>
           {mySeat && (
             <button className="btn btn-secondary" onClick={leaveOnlySeat}>
@@ -832,7 +894,7 @@ console.log("joined", joined)
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media.giphy.com/media/3o7abB06u9bNzA8lu8/giphy.gif"
+                      "https://media.giphy.com/media/3o7abB06u9bNzA8lu8/giphy.gif",
                     )
                   }
                 >
@@ -843,7 +905,7 @@ console.log("joined", joined)
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+                      "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
                     )
                   }
                 >
@@ -854,64 +916,94 @@ console.log("joined", joined)
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif"
+                      "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif",
                     )
                   }
                 >
                   😂
                 </button>
-                                <button
+                <button
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjR4am1kOWcyc3Q2a2d4Y2cxZ3E0ajd3ZjV3eHN1MXc5emhmYW53dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/DzcTpJFqKQo1M7eqK0/giphy.gif"
+                      "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjR4am1kOWcyc3Q2a2d4Y2cxZ3E0ajd3ZjV3eHN1MXc5emhmYW53dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/DzcTpJFqKQo1M7eqK0/giphy.gif",
                     )
                   }
                 >
                   🐶
                 </button>
-                     
-                                <button
+
+                <button
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://giphy.com/gifs/KanpaiPandas-4UTp23683CQTvA40oS"
+                      "https://giphy.com/gifs/KanpaiPandas-4UTp23683CQTvA40oS",
                     )
                   }
                 >
-                 🐼
+                  🐼
                 </button>
-                                               <button
+                <button
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExeDMwODNqYnZ0dWJxNjcyN2xxbnA0dmJvZGJxeXQ3dDNmc2cwcXkwdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/IU5ApmC4e6wEw/giphy.gif"
+                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExeDMwODNqYnZ0dWJxNjcyN2xxbnA0dmJvZGJxeXQ3dDNmc2cwcXkwdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/IU5ApmC4e6wEw/giphy.gif",
                     )
                   }
                 >
-               🐨
+                  🐨
                 </button>
-                               
-                                               <button
+
+                <button
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZWtyeXRpaDZrYzRrb3lpMGw4NGtmb2VtNmxsem5jMGVoMzdwcDlieSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6EDGSznQA5kVCa0DfD/giphy.gif"
+                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZWtyeXRpaDZrYzRrb3lpMGw4NGtmb2VtNmxsem5jMGVoMzdwcDlieSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6EDGSznQA5kVCa0DfD/giphy.gif",
                     )
                   }
                 >
-               hi
+                  hi
                 </button>
-                                                        <button
+                <button
                   className="btn btn-xs"
                   onClick={() =>
                     sendSeatGif(
-                      "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExemphcGh5dnYwZXB3N3J1c2hjODZlaDk5ODYzODY5Y3FoZGZzY3Y5ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/OuQmhmAAdJFLi/giphy.gif"
+                      "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExemphcGh5dnYwZXB3N3J1c2hjODZlaDk5ODYzODY5Y3FoZGZzY3Y5ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/OuQmhmAAdJFLi/giphy.gif",
                     )
                   }
                 >
-              💋
+                  💋
                 </button>
+<div className="flex items-center gap-2">
+  {/* Hidden Input */}
+  <input 
+    type="file" 
+    id="music-file-input"
+    accept="audio/*"
+    className="hidden"
+    onChange={(e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        toggleMusic(url);
+      }
+    }}
+  />
+
+  {/* Styled Button */}
+  <button 
+    onClick={() => {
+      if (musicPlaying) {
+        toggleMusic(""); // This will trigger the stop logic
+      } else {
+        document.getElementById("music-file-input")?.click();
+      }
+    }}
+    className={`btn ${musicPlaying ? "btn-danger" : "btn-primary"}`}
+  >
+    {musicPlaying ? "⏹ Stop Music" : "🎵 Play Music"}
+  </button>
+</div>
               </div>
 
               <div className="flex gap-3">

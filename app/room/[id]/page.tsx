@@ -891,6 +891,27 @@ console.log("joined", joined)
                 >
                🐨
                 </button>
+                               
+                                               <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZWtyeXRpaDZrYzRrb3lpMGw4NGtmb2VtNmxsem5jMGVoMzdwcDlieSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6EDGSznQA5kVCa0DfD/giphy.gif"
+                    )
+                  }
+                >
+               hi
+                </button>
+                                                        <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExemphcGh5dnYwZXB3N3J1c2hjODZlaDk5ODYzODY5Y3FoZGZzY3Y5ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/OuQmhmAAdJFLi/giphy.gif"
+                    )
+                  }
+                >
+              💋
+                </button>
               </div>
 
               <div className="flex gap-3">

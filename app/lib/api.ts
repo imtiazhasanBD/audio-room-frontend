@@ -524,3 +524,37 @@ export async function requestCohostApi(roomId: string) {
 }
 
 
+// Get active PK for a room
+export async function getActivePkApi(roomId: string) {
+  const res = await api.get(`/pk/active/${roomId}`);
+  return res.data as {
+    id: string;
+    videoRoomAId: string;
+    videoRoomBId: string;
+    hostAId: string;
+    hostBId: string;
+    scoreA: number;
+    scoreB: number;
+    status: string;
+    startedAt: string;
+  } | null;
+}
+
+// Send PK invite
+export async function sendPkInviteApi(targetRoomId: string) {
+  const res = await api.post("/pk/invite", { targetRoomId });
+  return res.data;
+}
+
+
+// Respond to PK invite
+export async function respondPkInviteApi(
+  inviteId: string,
+  action: "ACCEPT" | "REJECT",
+) {
+  const res = await api.post(`/pk/invite/${inviteId}/respond`, {
+    action,
+  });
+  return res.data;
+}
+

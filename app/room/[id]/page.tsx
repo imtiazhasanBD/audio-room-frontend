@@ -860,6 +860,37 @@ console.log("joined", joined)
                 >
                   😂
                 </button>
+                                <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjR4am1kOWcyc3Q2a2d4Y2cxZ3E0ajd3ZjV3eHN1MXc5emhmYW53dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/DzcTpJFqKQo1M7eqK0/giphy.gif"
+                    )
+                  }
+                >
+                  🐶
+                </button>
+                     
+                                <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://giphy.com/gifs/KanpaiPandas-4UTp23683CQTvA40oS"
+                    )
+                  }
+                >
+                 🐼
+                </button>
+                                               <button
+                  className="btn btn-xs"
+                  onClick={() =>
+                    sendSeatGif(
+                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExeDMwODNqYnZ0dWJxNjcyN2xxbnA0dmJvZGJxeXQ3dDNmc2cwcXkwdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/IU5ApmC4e6wEw/giphy.gif"
+                    )
+                  }
+                >
+               🐨
+                </button>
               </div>
 
               <div className="flex gap-3">

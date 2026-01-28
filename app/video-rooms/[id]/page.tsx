@@ -58,7 +58,7 @@ export default function VideoRoomJoinPage() {
   const [chatMode, setChatMode] = useState<chatMode | null>(
     room?.chatMode ?? null,
   );
-const [hostAgoraUid, setHostAgoraUid] = useState<number | null>(null);
+  const [hostAgoraUid, setHostAgoraUid] = useState<number | null>(null);
 
   // 1. NEW: Store all remote video tracks here (Key = Agora UID)
   const [remoteTracks, setRemoteTracks] = useState<
@@ -199,37 +199,28 @@ const [hostAgoraUid, setHostAgoraUid] = useState<number | null>(null);
       audio.play();
     });
 
-socket.on("PK_STARTED", async (data) => {
-  setPkBattle(data);
-  if (!clientRef.current) return;
+    socket.on("PK_STARTED", async (data) => {
+      setPkBattle(data);
+      if (!clientRef.current) return;
 
-  const client = clientRef.current;
+      const client = clientRef.current;
 
-  const config = AgoraRTC.createChannelMediaRelayConfiguration();
+      const config = AgoraRTC.createChannelMediaRelayConfiguration();
 
-  config.setSrcChannelInfo({
-    channelName: `room_${data.myRoomId}`,
-    uid: Number(data.myRtcUid),
-    token: "",
-  });
+      config.setSrcChannelInfo({
+        channelName: `room_${data.myRoomId}`,
+        uid: Number(data.myRtcUid),
+        token: "",
+      });
 
-  config.addDestChannelInfo({
-    channelName: `room_${data.opponentRoomId}`,
-    uid: 0,
-    token: data.relayToken,
-  });
+      config.addDestChannelInfo({
+        channelName: `room_${data.opponentRoomId}`,
+        uid: 0,
+        token: data.relayToken,
+      });
 
-  await client.startChannelMediaRelay(config);
-
-  // JOIN OPPONENT ROOM AS AUDIENCE
-  await client.join(
-    process.env.NEXT_PUBLIC_AGORA_APP_ID!,
-    `room_${data.opponentRoomId}`,
-    data.opponentToken, // YOU MUST PROVIDE THIS FROM BACKEND
-    null
-  );
-});
-
+      await client.startChannelMediaRelay(config);
+    });
 
     socket.on("VIDEO_FORCE_UNPUBLISH", async () => {
       if (!clientRef.current) return;
@@ -318,26 +309,25 @@ socket.on("PK_STARTED", async (data) => {
       await client.setClientRole(isRoomHost ? "host" : "audience");
 
       // 3. Setup Remote Track Listeners (Host or CoHosts)
- client.on("user-published", async (remoteUser, mediaType) => {
-  await client.subscribe(remoteUser, mediaType);
+      client.on("user-published", async (remoteUser, mediaType) => {
+        await client.subscribe(remoteUser, mediaType);
 
-  if (mediaType === "video") {
-    setRemoteTracks(prev => ({
-      ...prev,
-      [Number(remoteUser.uid)]: remoteUser.videoTrack!,
-    }));
+        if (mediaType === "video") {
+          setRemoteTracks((prev) => ({
+            ...prev,
+            [Number(remoteUser.uid)]: remoteUser.videoTrack!,
+          }));
 
-    // 🔥 FIRST PUBLISHER IS THE HOST
-    if (!hostAgoraUid) {
-      setHostAgoraUid(Number(remoteUser.uid));
-    }
-  }
+          // 🔥 FIRST PUBLISHER IS THE HOST
+          if (!hostAgoraUid) {
+            setHostAgoraUid(Number(remoteUser.uid));
+          }
+        }
 
-  if (mediaType === "audio") {
-    remoteUser.audioTrack?.play();
-  }
-});
-
+        if (mediaType === "audio") {
+          remoteUser.audioTrack?.play();
+        }
+      });
 
       client.on("user-unpublished", (remoteUser, mediaType) => {
         if (mediaType === "video") {
@@ -376,16 +366,6 @@ socket.on("PK_STARTED", async (data) => {
       });
 
       setLoading(false);
-
-      // 5. If I am the Room Owner (Host), Publish Immediately
-      if (isHost) {
-        const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
-        localTracksRef.current.audio = mic;
-        localTracksRef.current.video = cam;
-        setLocalVideoTrack(cam); // Update state
-
-        await client.publish([mic, cam]);
-      }
     } catch (e) {
       console.error("Join Error:", e);
       alert("Failed to join stream");
@@ -505,7 +485,9 @@ socket.on("PK_STARTED", async (data) => {
   // Logic: If I am host, use local. If I am viewer, use remote track matching room.hostRtcUid
   const hostVideoTrack = isHost
     ? localVideoTrack
-    : remoteTracks[Number(hostRtcUid)];
+    : hostAgoraUid
+      ? remoteTracks[hostAgoraUid]
+      : undefined;
 
   console.log(hostVideoTrack);
   if (loading || !room) {
@@ -515,16 +497,16 @@ socket.on("PK_STARTED", async (data) => {
       </div>
     );
   }
-  const myPkTrack =
-    pkBattle && Number(pkBattle.myRtcUid) === Number(rtcUid)
-      ? localVideoTrack
-      : pkBattle
-        ? remoteTracks[pkBattle.myRtcUid]
-        : undefined;
+  const myPkTrack = pkBattle ? localVideoTrack : undefined;
 
-  const opponentPkTrack = pkBattle
-    ? remoteTracks[pkBattle.opponentRtcUid]
-    : undefined;
+  const opponentPkTrack =
+    pkBattle && hostAgoraUid
+      ? remoteTracks[
+          Object.keys(remoteTracks)
+            .map(Number)
+            .find((uid) => uid !== rtcUid)!
+        ]
+      : undefined;
 
   return (
     <div className="min-h-screen bg-black text-white p-4">

@@ -58,6 +58,7 @@ export default function VideoRoomJoinPage() {
   const [chatMode, setChatMode] = useState<chatMode | null>(
     room?.chatMode ?? null,
   );
+const [hostAgoraUid, setHostAgoraUid] = useState<number | null>(null);
 
   // 1. NEW: Store all remote video tracks here (Key = Agora UID)
   const [remoteTracks, setRemoteTracks] = useState<
@@ -198,27 +199,37 @@ export default function VideoRoomJoinPage() {
       audio.play();
     });
 
-    socket.on("PK_STARTED", async (data) => {
-      setPkBattle(data);
-      console.log("pkkkk-start", data);
-      if (!clientRef.current) return;
+socket.on("PK_STARTED", async (data) => {
+  setPkBattle(data);
+  if (!clientRef.current) return;
 
-      const config = AgoraRTC.createChannelMediaRelayConfiguration();
+  const client = clientRef.current;
 
-      config.setSrcChannelInfo({
-        channelName: `room_${data.myRoomId}`,
-        uid: Number(data.myRtcUid),
-        token: "",
-      });
+  const config = AgoraRTC.createChannelMediaRelayConfiguration();
 
-      config.addDestChannelInfo({
-        channelName: `room_${data.opponentRoomId}`,
-        uid: 0,
-        token: data.relayToken,
-      });
+  config.setSrcChannelInfo({
+    channelName: `room_${data.myRoomId}`,
+    uid: Number(data.myRtcUid),
+    token: "",
+  });
 
-      await clientRef.current.startChannelMediaRelay(config);
-    });
+  config.addDestChannelInfo({
+    channelName: `room_${data.opponentRoomId}`,
+    uid: 0,
+    token: data.relayToken,
+  });
+
+  await client.startChannelMediaRelay(config);
+
+  // JOIN OPPONENT ROOM AS AUDIENCE
+  await client.join(
+    process.env.NEXT_PUBLIC_AGORA_APP_ID!,
+    `room_${data.opponentRoomId}`,
+    data.opponentToken, // YOU MUST PROVIDE THIS FROM BACKEND
+    null
+  );
+});
+
 
     socket.on("VIDEO_FORCE_UNPUBLISH", async () => {
       if (!clientRef.current) return;
@@ -307,20 +318,26 @@ export default function VideoRoomJoinPage() {
       await client.setClientRole(isRoomHost ? "host" : "audience");
 
       // 3. Setup Remote Track Listeners (Host or CoHosts)
-      client.on("user-published", async (remoteUser, mediaType) => {
-        await client.subscribe(remoteUser, mediaType);
+ client.on("user-published", async (remoteUser, mediaType) => {
+  await client.subscribe(remoteUser, mediaType);
 
-        if (mediaType === "video") {
-          // Save remote video track to State
-          setRemoteTracks((prev) => ({
-            ...prev,
-            [remoteUser.uid]: remoteUser.videoTrack as IRemoteVideoTrack,
-          }));
-        }
-        if (mediaType === "audio") {
-          remoteUser.audioTrack?.play();
-        }
-      });
+  if (mediaType === "video") {
+    setRemoteTracks(prev => ({
+      ...prev,
+      [Number(remoteUser.uid)]: remoteUser.videoTrack!,
+    }));
+
+    // 🔥 FIRST PUBLISHER IS THE HOST
+    if (!hostAgoraUid) {
+      setHostAgoraUid(Number(remoteUser.uid));
+    }
+  }
+
+  if (mediaType === "audio") {
+    remoteUser.audioTrack?.play();
+  }
+});
+
 
       client.on("user-unpublished", (remoteUser, mediaType) => {
         if (mediaType === "video") {

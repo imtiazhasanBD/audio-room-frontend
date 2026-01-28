@@ -39,8 +39,6 @@ export default function VideoRoomJoinPage() {
     audio?: IMicrophoneAudioTrack;
   }>({});
 
-  const [pkOpponentUid, setPkOpponentUid] = useState<number | null>(null);
-
   // --- State ---
   const [room, setRoom] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -203,7 +201,6 @@ export default function VideoRoomJoinPage() {
 
     socket.on("PK_STARTED", async (data) => {
       setPkBattle(data);
-        setPkOpponentUid(Number(data.opponentRtcUid));
       if (!clientRef.current) return;
 
       const client = clientRef.current;
@@ -502,10 +499,14 @@ export default function VideoRoomJoinPage() {
   }
   const myPkTrack = pkBattle ? localVideoTrack : undefined;
 
-const opponentPkTrack =
-  pkBattle && pkOpponentUid
-    ? remoteTracks[pkOpponentUid]
-    : undefined;
+  const opponentPkTrack =
+    pkBattle && hostAgoraUid
+      ? remoteTracks[
+          Object.keys(remoteTracks)
+            .map(Number)
+            .find((uid) => uid !== rtcUid)!
+        ]
+      : undefined;
 
   return (
     <div className="min-h-screen bg-black text-white p-4">

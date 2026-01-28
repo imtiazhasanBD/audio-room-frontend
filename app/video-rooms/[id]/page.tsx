@@ -207,21 +207,15 @@ export default function VideoRoomJoinPage() {
 
       config.setSrcChannelInfo({
         channelName: `room_${data.myRoomId}`,
-        uid: Number(data.myRtcUid), // ✅ convert
+        uid: Number(data.myRtcUid),
         token: "",
       });
 
       config.addDestChannelInfo({
         channelName: `room_${data.opponentRoomId}`,
-        uid: 0, // ✅ convert
+        uid: 0,
         token: data.relayToken,
       });
-      if (clientRef.current.connectionState !== "CONNECTED") {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      if (isPkHost) {
-        await clientRef.current.unpublish(); // 🔥 unpublish local
-      }
 
       await clientRef.current.startChannelMediaRelay(config);
     });
@@ -297,21 +291,20 @@ export default function VideoRoomJoinPage() {
 
     try {
       // 1. API Call to get Room Details & Token
-      const res = await (isHost
-        ? goLiveVideoRoomApi()
-        : joinVideoRoomApi(roomId));
+      const res = await joinVideoRoomApi(roomId);
+
+      const isRoomHost = res.room.hostId === user?.id;
+
       setRoom(res.room);
       setHostRtcUid(res.room.hostRtcUid);
       setRtcUid(res.token.uid);
       setCoHosts(res.room.coHosts || []);
 
-      // 2. Init Agora Client
       const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
-      // 🔥 enable dual stream BEFORE join
       await client.enableDualStream();
       clientRef.current = client;
 
-      await client.setClientRole(isHost ? "host" : "audience");
+      await client.setClientRole(isRoomHost ? "host" : "audience");
 
       // 3. Setup Remote Track Listeners (Host or CoHosts)
       client.on("user-published", async (remoteUser, mediaType) => {
@@ -347,6 +340,15 @@ export default function VideoRoomJoinPage() {
         res.token.token,
         res.token.uid,
       );
+
+      if (isRoomHost) {
+        const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks();
+        localTracksRef.current.audio = mic;
+        localTracksRef.current.video = cam;
+        setLocalVideoTrack(cam);
+        await client.publish([mic, cam]);
+      }
+
       client.enableAudioVolumeIndicator();
       client.on("volume-indicator", (volumes) => {
         const speaking = volumes
@@ -484,7 +486,9 @@ export default function VideoRoomJoinPage() {
   };
   // Determine which track belongs to the Main Host
   // Logic: If I am host, use local. If I am viewer, use remote track matching room.hostRtcUid
-  const hostVideoTrack = isHost ? localVideoTrack : remoteTracks[hostRtcUid];
+  const hostVideoTrack = isHost
+    ? localVideoTrack
+    : remoteTracks[Number(hostRtcUid)];
 
   console.log(hostVideoTrack);
   if (loading || !room) {
@@ -494,6 +498,16 @@ export default function VideoRoomJoinPage() {
       </div>
     );
   }
+  const myPkTrack =
+    pkBattle && Number(pkBattle.myRtcUid) === Number(rtcUid)
+      ? localVideoTrack
+      : pkBattle
+        ? remoteTracks[pkBattle.myRtcUid]
+        : undefined;
+
+  const opponentPkTrack = pkBattle
+    ? remoteTracks[pkBattle.opponentRtcUid]
+    : undefined;
 
   return (
     <div className="min-h-screen bg-black text-white p-4">
@@ -586,7 +600,7 @@ export default function VideoRoomJoinPage() {
               <div
                 className={`relative transition-all duration-500 ${pkScore.scoreA >= pkScore.scoreB ? "after:absolute after:inset-0 after:bg-blue-500/10 after:border-4 after:border-blue-400 after:pointer-events-none" : "opacity-80"}`}
               >
-                <AgoraPlayer videoTrack={remoteTracks[pkBattle.myRtcUid]} />
+                <AgoraPlayer videoTrack={myPkTrack} />
 
                 <div className="absolute bottom-5 left-5 flex items-center gap-3">
                   <div className="bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded border-l-4 border-cyan-300 uppercase tracking-widest shadow-lg">
@@ -599,9 +613,8 @@ export default function VideoRoomJoinPage() {
               <div
                 className={`relative bg-slate-900 transition-all duration-500 ${pkScore.scoreB > pkScore.scoreA ? "after:absolute after:inset-0 after:bg-indigo-500/10 after:border-4 after:border-indigo-400 after:pointer-events-none" : "opacity-80"}`}
               >
-                <AgoraPlayer
-                  videoTrack={remoteTracks[pkBattle.opponentRtcUid]}
-                />
+                <AgoraPlayer videoTrack={opponentPkTrack} />
+
                 <div className="absolute bottom-5 right-5 flex items-center gap-3 flex-row-reverse">
                   <div className="bg-slate-800 text-slate-300 text-[10px] font-black px-3 py-1.5 rounded border-r-4 border-indigo-500 uppercase tracking-widest">
                     OPPONENT

@@ -682,6 +682,10 @@ async function toggleMusic(fileUrl: string) {
       console.log("helowwwwwwwww", userId);
     });
 
+        s.on("world.notice", async (data) => {
+      console.log("world.noticeeeee", data);
+    });
+
     s.on("seat.gif", ({ seatIndex, gifUrl, ts }) => {
       setSeatGifs((prev) => ({
         ...prev,

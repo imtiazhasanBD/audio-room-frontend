@@ -253,6 +253,10 @@ export default function VideoRoomJoinPage() {
       setPkScore({ scoreA: 0, scoreB: 0 });
     });
 
+    socket.on("world.notice", async (data) => {
+      console.log("world.noticeeeee", data);
+    });
+
     return () => {
       socket.emit("room.leave", { roomId });
       socket.off("VIDEO_PARTICIPANTS_UPDATED");

@@ -142,14 +142,16 @@ export default function RoomPage() {
   const rtcOpLockRef = useRef(false);
 
   const [musicPlaying, setMusicPlaying] = useState(false);
-const musicTrackRef = useRef<ILocalAudioTrack | null>(null);
-const audioElemRef = useRef<HTMLAudioElement | null>(null);
+  const musicTrackRef = useRef<ILocalAudioTrack | null>(null);
+  const audioElemRef = useRef<HTMLAudioElement | null>(null);
 
-const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
-const youtubePlayerRef = useRef<any>(null);
-const youtubeAudioTrackRef = useRef<ILocalAudioTrack | null>(null);
-const youtubeAudioElementRef = useRef<HTMLAudioElement | null>(null);
-
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+  const youtubePlayerRef = useRef<any>(null);
+  const youtubeAudioTrackRef = useRef<ILocalAudioTrack | null>(null);
+  const youtubeAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const youtubeSyncLockRef = useRef(false);
+  const pendingYoutubeStateRef = useRef<any>(null);
+  const youtubeVideoIdRef = useRef<string | null>(null);
 
   const println = (m: string) =>
     setLog((prev) => [
@@ -401,94 +403,87 @@ const youtubeAudioElementRef = useRef<HTMLAudioElement | null>(null);
     }
   }
 
+  async function toggleMusic(fileUrl: string) {
+    const client = clientRef.current;
+    if (!client) return;
 
-async function toggleMusic(fileUrl: string) {
-  const client = clientRef.current;
-  if (!client) return;
-
-  if (musicPlaying && musicTrackRef.current) {
-    // ... (keep your existing stop logic)
-    musicTrackRef.current.stop();
-    musicTrackRef.current.close();
-    await client.unpublish([musicTrackRef.current]);
-    musicTrackRef.current = null;
-    setMusicPlaying(false);
-    return;
-  }
-
-  try {
-    const audio = new Audio(fileUrl);
-    audio.crossOrigin = "anonymous";
-
-    // 1. Wait for the audio to be ready to play
-    await new Promise((resolve) => {
-      audio.oncanplaythrough = resolve;
-      audio.load();
-    });
-
-    // 2. Capture the stream correctly
-    const stream = (audio as any).captureStream 
-      ? (audio as any).captureStream() 
-      : (audio as any).mozCaptureStream();
-
-    const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      throw new Error("No audio tracks found in the selected file.");
+    if (musicPlaying && musicTrackRef.current) {
+      // ... (keep your existing stop logic)
+      musicTrackRef.current.stop();
+      musicTrackRef.current.close();
+      await client.unpublish([musicTrackRef.current]);
+      musicTrackRef.current = null;
+      setMusicPlaying(false);
+      return;
     }
 
-    // 3. Use the global AgoraRTC or the imported version
-    const musicTrack = await (window as any).AgoraRTC.createCustomAudioTrack({
-      mediaStreamTrack: audioTracks[0],
+    try {
+      const audio = new Audio(fileUrl);
+      audio.crossOrigin = "anonymous";
+
+      // 1. Wait for the audio to be ready to play
+      await new Promise((resolve) => {
+        audio.oncanplaythrough = resolve;
+        audio.load();
+      });
+
+      // 2. Capture the stream correctly
+      const stream = (audio as any).captureStream
+        ? (audio as any).captureStream()
+        : (audio as any).mozCaptureStream();
+
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        throw new Error("No audio tracks found in the selected file.");
+      }
+
+      // 3. Use the global AgoraRTC or the imported version
+      const musicTrack = await (window as any).AgoraRTC.createCustomAudioTrack({
+        mediaStreamTrack: audioTracks[0],
+      });
+
+      await client.setClientRole("host");
+      await client.publish([musicTrack]);
+
+      // Start playback
+      await audio.play();
+
+      musicTrackRef.current = musicTrack;
+      setMusicPlaying(true);
+      println("🎵 Music playing successfully");
+    } catch (err) {
+      console.error("Music Error:", err);
+      println("❌ Music error: Check console");
+    }
+  }
+
+  function extractVideoId(url: string) {
+    try {
+      const u = new URL(url);
+
+      if (u.hostname.includes("youtube.com")) return u.searchParams.get("v");
+
+      if (u.hostname.includes("youtu.be")) return u.pathname.slice(1);
+    } catch {}
+
+    return null;
+  }
+
+  function playYoutube(url: string) {
+    const videoId = extractVideoId(url);
+
+    if (!videoId) {
+      println("❌ Invalid YouTube URL");
+      return;
+    }
+
+    socketRef.current?.emit("youtube.play", {
+      roomId,
+      videoId,
+      currentTime: 0,
+      userId,
     });
-
-    await client.setClientRole("host");
-    await client.publish([musicTrack]);
-    
-    // Start playback
-    await audio.play();
-    
-    musicTrackRef.current = musicTrack;
-    setMusicPlaying(true);
-    println("🎵 Music playing successfully");
-
-  } catch (err) {
-    console.error("Music Error:", err);
-    println("❌ Music error: Check console");
   }
-}
-
-
-function extractVideoId(url: string) {
-  try {
-    const u = new URL(url);
-
-    if (u.hostname.includes("youtube.com"))
-      return u.searchParams.get("v");
-
-    if (u.hostname.includes("youtu.be"))
-      return u.pathname.slice(1);
-
-  } catch {}
-
-  return null;
-}
-
-function playYoutube(url: string) {
-
-  const videoId = extractVideoId(url);
-
-  if (!videoId) {
-    println("❌ Invalid YouTube URL");
-    return;
-  }
-
-  socketRef.current?.emit("youtube.play", {
-    roomId,
-    videoId,
-    userId,
-  });
-}
-
 
   // -----------------------
   // Next part (Seat logic + Socket + UI)
@@ -722,7 +717,7 @@ function playYoutube(url: string) {
       console.log("helowwwwwwwww", userId);
     });
 
-        s.on("world.notice", async (data) => {
+    s.on("world.notice", async (data) => {
       console.log("world.noticeeeee", data);
     });
 
@@ -742,38 +737,70 @@ function playYoutube(url: string) {
       }, 3000);
     });
 
+    s.on("youtube.state", async (state) => {
+      println("📺 Sync state received");
 
-      s.on("youtube.play", async ({ videoId }) => {
+      pendingYoutubeStateRef.current = state;
 
-    println("📺 YouTube playing: " + videoId);
+      const player = youtubePlayerRef.current;
 
-    setYoutubeVideoId(videoId);
+      // NEW VIDEO
+      if (!player || youtubeVideoIdRef.current !== state.videoId) {
+        youtubeSyncLockRef.current = true;
 
-    setTimeout(() => {
-      publishYoutubeAudio();
-    }, 1500);
+        youtubeVideoIdRef.current = state.videoId;
 
-  });
+        setYoutubeVideoId(state.videoId);
 
-  s.on("youtube.stop", async () => {
+        return;
+      }
 
-    println("⏹ YouTube stopped");
+      // SAME VIDEO SYNC
+      youtubeSyncLockRef.current = true;
 
-    setYoutubeVideoId(null);
+      const delay = (Date.now() - state.updatedAt) / 1000;
 
-    if (youtubeAudioTrackRef.current) {
+      const targetTime = state.currentTime + delay;
 
-      await clientRef.current?.unpublish([
-        youtubeAudioTrackRef.current,
-      ]);
+      player.seekTo(targetTime, true);
 
-      youtubeAudioTrackRef.current.stop();
-      youtubeAudioTrackRef.current.close();
+      if (state.isPlaying) {
+        await player.playVideo();
 
-      youtubeAudioTrackRef.current = null;
-    }
+        await publishYoutubeAudio();
+      } else {
+        player.pauseVideo();
 
-  });
+        if (youtubeAudioTrackRef.current) {
+          await clientRef.current?.unpublish([youtubeAudioTrackRef.current]);
+
+          youtubeAudioTrackRef.current.stop();
+          youtubeAudioTrackRef.current.close();
+
+          youtubeAudioTrackRef.current = null;
+        }
+      }
+
+      setTimeout(() => {
+        youtubeSyncLockRef.current = false;
+      }, 500);
+    });
+
+    s.on("youtube.stop", async () => {
+      println("⏹ YouTube stopped");
+
+      setYoutubeVideoId(null);
+      youtubeVideoIdRef.current = null;
+
+      if (youtubeAudioTrackRef.current) {
+        await clientRef.current?.unpublish([youtubeAudioTrackRef.current]);
+
+        youtubeAudioTrackRef.current.stop();
+        youtubeAudioTrackRef.current.close();
+
+        youtubeAudioTrackRef.current = null;
+      }
+    });
 
     // Seat request
     // s.on("seat.request", ({ request }) => {
@@ -805,8 +832,8 @@ function playYoutube(url: string) {
     return () => {
       s.disconnect();
       socketRef.current = null;
-         s.off("youtube.play");
-    s.off("youtube.stop");
+      s.off("youtube.play");
+      s.off("youtube.stop");
     };
   }, [API_BASE, roomId, userId]);
 
@@ -908,21 +935,19 @@ function playYoutube(url: string) {
     });
   }
 
-
   async function publishYoutubeAudio() {
     const client = clientRef.current;
 
     if (!client || !youtubePlayerRef.current) return;
+
+    if (youtubeAudioTrackRef.current) return;
 
     try {
       const iframe = youtubePlayerRef.current.getIframe();
 
       const stream = iframe.captureStream?.() || iframe.mozCaptureStream?.();
 
-      if (!stream) {
-        println("❌ Browser does not support captureStream");
-        return;
-      }
+      if (!stream) return;
 
       const track = stream.getAudioTracks()[0];
 
@@ -939,13 +964,40 @@ function playYoutube(url: string) {
       youtubeAudioTrackRef.current = agoraTrack;
 
       println("🔊 YouTube audio published");
-    } catch (e) {
-      console.error(e);
-
-      println("❌ YouTube audio failed");
+    } catch (err) {
+      console.error(err);
     }
   }
 
+  const lastYoutubeTimeRef = useRef(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const player = youtubePlayerRef.current;
+
+      if (!player) return;
+
+      if (youtubeSyncLockRef.current) return;
+
+      const current = player.getCurrentTime();
+
+      const diff = Math.abs(current - lastYoutubeTimeRef.current);
+
+      if (diff > 2) {
+        console.log("EMIT youtube.seek");
+
+        socketRef.current?.emit("youtube.seek", {
+          roomId,
+          currentTime: current,
+          userId,
+        });
+      }
+
+      lastYoutubeTimeRef.current = current;
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // ============================
   // RENDER
@@ -1211,21 +1263,70 @@ function playYoutube(url: string) {
             />
           )}
           {youtubeVideoId && (
-            <div className="card">
-              <YouTube
-                videoId={youtubeVideoId}
-                opts={{
-                  width: "100%",
-                  height: "300",
-                  playerVars: {
-                    autoplay: 1,
-                  },
-                }}
-                onReady={(e) => {
-                  youtubePlayerRef.current = e.target;
-                }}
-              />
-            </div>
+            <YouTube
+              videoId={youtubeVideoId}
+              opts={{
+                width: "100%",
+                height: "300",
+                playerVars: {
+                  autoplay: 1,
+                  controls: 1,
+                },
+              }}
+              onReady={async (e) => {
+                youtubePlayerRef.current = e.target;
+
+                const state = pendingYoutubeStateRef.current;
+
+                if (!state) return;
+
+                youtubeSyncLockRef.current = true;
+
+                const player = e.target;
+
+                const delay = (Date.now() - state.updatedAt) / 1000;
+
+                const targetTime = state.currentTime + delay;
+
+                player.seekTo(targetTime, true);
+
+                if (state.isPlaying) {
+                  await player.playVideo();
+
+                  await publishYoutubeAudio();
+                } else {
+                  player.pauseVideo();
+                }
+
+                setTimeout(() => {
+                  youtubeSyncLockRef.current = false;
+                }, 500);
+              }}
+              onStateChange={(event) => {
+                if (youtubeSyncLockRef.current) return;
+
+                const player = event.target;
+
+                const currentTime = player.getCurrentTime();
+
+                if (event.data === 1) {
+                  socketRef.current?.emit("youtube.play", {
+                    roomId,
+                    videoId: youtubeVideoIdRef.current,
+                    currentTime,
+                    userId,
+                  });
+                }
+
+                if (event.data === 2) {
+                  socketRef.current?.emit("youtube.pause", {
+                    roomId,
+                    currentTime,
+                    userId,
+                  });
+                }
+              }}
+            />
           )}
         </div>
       </main>
@@ -1278,5 +1379,4 @@ function playYoutube(url: string) {
       )}
     </div>
   );
-  
 }

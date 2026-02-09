@@ -36,6 +36,7 @@ import { SeatGrid } from "@/app/components/SeatGrid";
 import SeatInviteModal from "@/app/components/SeatInviteModal";
 import RoomPinModal from "@/app/components/RoomPinModal";
 import ChatBox from "@/app/components/ChatBox";
+import YouTube from "react-youtube";
 
 // -----------------------
 // Agora singleton loader
@@ -143,6 +144,12 @@ export default function RoomPage() {
   const [musicPlaying, setMusicPlaying] = useState(false);
 const musicTrackRef = useRef<ILocalAudioTrack | null>(null);
 const audioElemRef = useRef<HTMLAudioElement | null>(null);
+
+const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
+const youtubePlayerRef = useRef<any>(null);
+const youtubeAudioTrackRef = useRef<ILocalAudioTrack | null>(null);
+const youtubeAudioElementRef = useRef<HTMLAudioElement | null>(null);
+
 
   const println = (m: string) =>
     setLog((prev) => [
@@ -450,6 +457,39 @@ async function toggleMusic(fileUrl: string) {
   }
 }
 
+
+function extractVideoId(url: string) {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname.includes("youtube.com"))
+      return u.searchParams.get("v");
+
+    if (u.hostname.includes("youtu.be"))
+      return u.pathname.slice(1);
+
+  } catch {}
+
+  return null;
+}
+
+function playYoutube(url: string) {
+
+  const videoId = extractVideoId(url);
+
+  if (!videoId) {
+    println("❌ Invalid YouTube URL");
+    return;
+  }
+
+  socketRef.current?.emit("youtube.play", {
+    roomId,
+    videoId,
+    userId,
+  });
+}
+
+
   // -----------------------
   // Next part (Seat logic + Socket + UI)
   // -----------------------
@@ -702,6 +742,39 @@ async function toggleMusic(fileUrl: string) {
       }, 3000);
     });
 
+
+      s.on("youtube.play", async ({ videoId }) => {
+
+    println("📺 YouTube playing: " + videoId);
+
+    setYoutubeVideoId(videoId);
+
+    setTimeout(() => {
+      publishYoutubeAudio();
+    }, 1500);
+
+  });
+
+  s.on("youtube.stop", async () => {
+
+    println("⏹ YouTube stopped");
+
+    setYoutubeVideoId(null);
+
+    if (youtubeAudioTrackRef.current) {
+
+      await clientRef.current?.unpublish([
+        youtubeAudioTrackRef.current,
+      ]);
+
+      youtubeAudioTrackRef.current.stop();
+      youtubeAudioTrackRef.current.close();
+
+      youtubeAudioTrackRef.current = null;
+    }
+
+  });
+
     // Seat request
     // s.on("seat.request", ({ request }) => {
     //   setSeatRequests((prev) =>
@@ -732,6 +805,8 @@ async function toggleMusic(fileUrl: string) {
     return () => {
       s.disconnect();
       socketRef.current = null;
+         s.off("youtube.play");
+    s.off("youtube.stop");
     };
   }, [API_BASE, roomId, userId]);
 
@@ -833,6 +908,45 @@ async function toggleMusic(fileUrl: string) {
     });
   }
 
+
+  async function publishYoutubeAudio() {
+    const client = clientRef.current;
+
+    if (!client || !youtubePlayerRef.current) return;
+
+    try {
+      const iframe = youtubePlayerRef.current.getIframe();
+
+      const stream = iframe.captureStream?.() || iframe.mozCaptureStream?.();
+
+      if (!stream) {
+        println("❌ Browser does not support captureStream");
+        return;
+      }
+
+      const track = stream.getAudioTracks()[0];
+
+      if (!track) return;
+
+      const agoraTrack = await AgoraRTC.createCustomAudioTrack({
+        mediaStreamTrack: track,
+      });
+
+      await client.setClientRole("host");
+
+      await client.publish([agoraTrack]);
+
+      youtubeAudioTrackRef.current = agoraTrack;
+
+      println("🔊 YouTube audio published");
+    } catch (e) {
+      console.error(e);
+
+      println("❌ YouTube audio failed");
+    }
+  }
+
+
   // ============================
   // RENDER
   // ============================
@@ -891,153 +1005,161 @@ async function toggleMusic(fileUrl: string) {
         {/* LEFT: Seats + logs */}
         <div className="md:col-span-2 space-y-4">
           <div className="card">
-            <div className="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
-              <h2 className="text-lg font-bold">Seats</h2>
-              <div className="flex gap-2 mb-3">
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media.giphy.com/media/3o7abB06u9bNzA8lu8/giphy.gif",
-                    )
-                  }
-                >
-                  🎉
-                </button>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl max-w-4xl mx-auto">
+              {/* Header Section */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">
+                    Seat Controls
+                  </h2>
+                  <p className="text-slate-400 text-sm">
+                    Manage reactions, media, and room capacity
+                  </p>
+                </div>
 
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-                    )
-                  }
-                >
-                  🔥
-                </button>
-
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif",
-                    )
-                  }
-                >
-                  😂
-                </button>
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExdjR4am1kOWcyc3Q2a2d4Y2cxZ3E0ajd3ZjV3eHN1MXc5emhmYW53dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/DzcTpJFqKQo1M7eqK0/giphy.gif",
-                    )
-                  }
-                >
-                  🐶
-                </button>
-
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://giphy.com/gifs/KanpaiPandas-4UTp23683CQTvA40oS",
-                    )
-                  }
-                >
-                  🐼
-                </button>
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExeDMwODNqYnZ0dWJxNjcyN2xxbnA0dmJvZGJxeXQ3dDNmc2cwcXkwdiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/IU5ApmC4e6wEw/giphy.gif",
-                    )
-                  }
-                >
-                  🐨
-                </button>
-
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZWtyeXRpaDZrYzRrb3lpMGw4NGtmb2VtNmxsem5jMGVoMzdwcDlieSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6EDGSznQA5kVCa0DfD/giphy.gif",
-                    )
-                  }
-                >
-                  hi
-                </button>
-                <button
-                  className="btn btn-xs"
-                  onClick={() =>
-                    sendSeatGif(
-                      "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExemphcGh5dnYwZXB3N3J1c2hjODZlaDk5ODYzODY5Y3FoZGZzY3Y5ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/OuQmhmAAdJFLi/giphy.gif",
-                    )
-                  }
-                >
-                  💋
-                </button>
-<div className="flex items-center gap-2">
-  {/* Hidden Input */}
-  <input 
-    type="file" 
-    id="music-file-input"
-    accept="audio/*"
-    className="hidden"
-    onChange={(e) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        const url = URL.createObjectURL(file);
-        toggleMusic(url);
-      }
-    }}
-  />
-
-  {/* Styled Button */}
-  <button 
-    onClick={() => {
-      if (musicPlaying) {
-        toggleMusic(""); // This will trigger the stop logic
-      } else {
-        document.getElementById("music-file-input")?.click();
-      }
-    }}
-    className={`btn ${musicPlaying ? "btn-danger" : "btn-primary"}`}
-  >
-    {musicPlaying ? "⏹ Stop Music" : "🎵 Play Music"}
-  </button>
-</div>
+                <div className="flex items-center gap-3">
+                  {/* Room Configuration Group */}
+                  <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700">
+                    <select
+                      onChange={(e) => applyBulkSeatMode(e.target.value)}
+                      defaultValue=""
+                      className="bg-transparent text-slate-200 text-sm px-3 py-1.5 focus:outline-none cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        Mode
+                      </option>
+                      <option value="FREE">Free</option>
+                      <option value="REQUEST">Request</option>
+                    </select>
+                    <div className="w-px h-4 bg-slate-700 self-center mx-1"></div>
+                    <select
+                      onChange={(e) => updateSeatCount(Number(e.target.value))}
+                      defaultValue=""
+                      className="bg-transparent text-slate-200 text-sm px-3 py-1.5 focus:outline-none cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        Seats
+                      </option>
+                      <option value="8">8</option>
+                      <option value="12">12</option>
+                      <option value="16">16</option>
+                      <option value="20">20</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex gap-3">
-                {/* bulk mode */}
-                <select
-                  onChange={(e) => applyBulkSeatMode(e.target.value)}
-                  defaultValue=""
-                  className="appearance-none bg-slate-800 border border-slate-600 px-3 py-2 text-xs rounded"
-                >
-                  <option value="" disabled>
-                    Mode
-                  </option>
-                  <option value="FREE">Free Mode</option>
-                  <option value="REQUEST">Request Mode</option>
-                </select>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left Column: Quick Reactions */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Quick Reactions
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { icon: "🎉", url: "3o7abB06u9bNzA8lu8" },
+                      { icon: "🔥", url: "l0MYt5jPR6QX5pnqM" },
+                      { icon: "😂", url: "ICOgUNjpvO0PC" },
+                      { icon: "🐶", url: "DzcTpJFqKQo1M7eqK0" },
+                      { icon: "🐼", url: "KanpaiPandas-4UTp23683CQTvA40oS" },
+                      { icon: "🐨", url: "IU5ApmC4e6wEw" },
+                      { icon: "👋", url: "6EDGSznQA5kVCa0DfD" },
+                      { icon: "💋", url: "OuQmhmAAdJFLi" },
+                    ].map((emoji) => (
+                      <button
+                        key={emoji.url}
+                        onClick={() =>
+                          sendSeatGif(
+                            `https://media.giphy.com/media/${emoji.url}/giphy.gif`,
+                          )
+                        }
+                        className="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-indigo-600 border border-slate-700 rounded-lg transition-all hover:-translate-y-1 active:scale-95 text-xl"
+                      >
+                        {emoji.icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                {/* capacity */}
-                <select
-                  onChange={(e) => updateSeatCount(Number(e.target.value))}
-                  defaultValue=""
-                  className="appearance-none bg-slate-800 border border-slate-600 px-3 py-2 text-xs rounded"
-                >
-                  <option value="" disabled>
-                    Capacity
-                  </option>
-                  <option value="8">8</option>
-                  <option value="12">12</option>
-                  <option value="16">16</option>
-                  <option value="20">20</option>
-                </select>
+                {/* Right Column: Media Controls */}
+                <div className="space-y-6">
+                  {/* Audio Section */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Audio Player
+                    </h3>
+                    <input
+                      type="file"
+                      id="music-file-input"
+                      accept="audio/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) toggleMusic(URL.createObjectURL(file));
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        musicPlaying
+                          ? toggleMusic("")
+                          : document
+                              .getElementById("music-file-input")
+                              ?.click();
+                      }}
+                      className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg font-medium transition-colors ${
+                        musicPlaying
+                          ? "bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20"
+                          : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-500/20"
+                      }`}
+                    >
+                      {musicPlaying ? (
+                        <>
+                          <span className="animate-pulse">⏹</span> Stop Music
+                        </>
+                      ) : (
+                        <>
+                          <span>🎵</span> Play Local Music
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* YouTube Section */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      YouTube Sync
+                    </h3>
+                    <div className="flex gap-2">
+                      <div className="relative flex-grow">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                          URL
+                        </span>
+                        <input
+                          placeholder="Paste link & enter..."
+                          className="w-full bg-slate-800 border border-slate-700 pl-12 pr-4 py-2.5 rounded-lg text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              playYoutube(e.currentTarget.value);
+                              e.currentTarget.value = "";
+                            }
+                          }}
+                        />
+                      </div>
+                      <button
+                        onClick={() =>
+                          socketRef.current?.emit("youtube.stop", {
+                            roomId,
+                            userId,
+                          })
+                        }
+                        className="px-4 py-2.5 bg-slate-700 hover:bg-red-600 text-white rounded-lg transition-colors text-sm font-medium"
+                        title="Stop Video"
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1087,6 +1209,23 @@ async function toggleMusic(fileUrl: string) {
               //  onMute={handleHostMute}
               onKick={handleKick}
             />
+          )}
+          {youtubeVideoId && (
+            <div className="card">
+              <YouTube
+                videoId={youtubeVideoId}
+                opts={{
+                  width: "100%",
+                  height: "300",
+                  playerVars: {
+                    autoplay: 1,
+                  },
+                }}
+                onReady={(e) => {
+                  youtubePlayerRef.current = e.target;
+                }}
+              />
+            </div>
           )}
         </div>
       </main>
@@ -1139,4 +1278,5 @@ async function toggleMusic(fileUrl: string) {
       )}
     </div>
   );
+  
 }

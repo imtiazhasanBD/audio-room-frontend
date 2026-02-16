@@ -23,7 +23,7 @@ export default function RoomsPage() {
     try {
       const list = await fetchRooms();
       setRooms(list);
-      console.log("list",list)
+      console.log("list", list);
     } catch (err) {
       console.error("LOAD ROOMS ERR:", err);
     } finally {
@@ -31,7 +31,7 @@ export default function RoomsPage() {
     }
   }
 
-/*   async function handleCreate() {
+  /*   async function handleCreate() {
     if (!roomName.trim()) return;
     try {
       const room = await createRoomApi(roomName, "AGORA");
@@ -56,7 +56,12 @@ export default function RoomsPage() {
       <header className="border-b border-slate-800 px-6 py-3 flex items-center justify-between bg-slate-950/90">
         <div>
           <span className="text-lg font-semibold">🎧 Audio Rooms</span>
-          <span onClick={() => router.push("/inbox")} className="ml-2 text-sm font-bold text-red-500 cursor-pointer">Inbox</span>
+          <span
+            onClick={() => router.push("/inbox")}
+            className="ml-2 text-sm font-bold text-red-500 cursor-pointer"
+          >
+            Inbox
+          </span>
         </div>
 
         <div className="flex items-center gap-2 text-sm">
@@ -65,7 +70,9 @@ export default function RoomsPage() {
               Logged in as <b>{user.email ?? user.sub}</b>
             </span>
           )}
-          <button className="btn" onClick={logout}>Logout</button>
+          <button className="btn" onClick={logout}>
+            Logout
+          </button>
         </div>
       </header>
 
@@ -82,9 +89,7 @@ export default function RoomsPage() {
               onChange={(e) => setRoomName(e.target.value)}
             />
           </div>
-          <button className="btn btn-primary" >
-            Create
-          </button>
+          <button className="btn btn-primary">Create</button>
         </div>
 
         {/* ROOMS LIST */}
